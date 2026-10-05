@@ -21,7 +21,7 @@ object DatabaseMigrations {
             migration_35_36, migration_36_37, migration_37_38, migration_38_39,
             migration_39_40, migration_40_41, migration_41_42, migration_42_43,
             migration_82_83, migration_98_99, migration_99_100,
-            migration_102_103, migration_107_108, migration_108_109,
+            migration_102_103, migration_107_108, migration_108_109, migration_109_110,
         )
     }
 
@@ -680,6 +680,17 @@ object DatabaseMigrations {
                     "    (loginUrl is not null and trim(loginUrl) <> '') hasLoginUrl, lastUpdateTime, respondTime, weight, \n" +
                     "    (exploreUrl is not null and trim(exploreUrl) <> '') hasExploreUrl, isFavorite \n" +
                     "    from book_sources"
+            )
+        }
+    }
+
+    private val migration_109_110 = object : Migration(109, 110) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // 目录规则加「兜底」标记：分隔线类规则只有在没有普通规则可用时才允许生效，
+            // 否则它会靠命中数压过标题规则（详见 TxtTocRule.isFallback 的说明）。
+            // txtTocRules 没有被任何 DatabaseView 引用，因此加列即完，无需重建视图。
+            db.execSQL(
+                "ALTER TABLE `txtTocRules` ADD COLUMN `isFallback` INTEGER NOT NULL DEFAULT 0"
             )
         }
     }

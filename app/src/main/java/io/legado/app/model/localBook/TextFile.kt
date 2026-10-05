@@ -476,31 +476,60 @@ class TextFile(private var book: Book) {
     /**
      * 获取合适的目录规则
      */
+    /**
+     * 获取合适的目录规则。
+     *
+     * `isFallback` 的规则（如「分隔线」）只在**没有任何普通规则能用**时才参与竞争：它把
+     * `※※※` / `————` 这类场景分隔当章界，命中数天然远大于标题规则，同场竞争必然把有正经
+     * 章节名的书拆成按场景分章。
+     *
+     * 「能用」的下限是至少切出 2 章：只命中 1 次等于整本一章，读者照样看不到断章，这时
+     * 兜底规则反而更有用。
+     */
     private fun getTocRule(content: String): TxtTocRule? {
         val rules = getTocRules().reversed()
+        val best = bestRule(content, rules.filterNot { it.isFallback })
+        if (best != null && countMatches(content, best) > 1) return best
+        return bestRule(content, rules.filter { it.isFallback }) ?: best
+    }
+
+    /**
+     * 命中数最多者胜；平局取 serialNumber 更小的（rules 已按 serialNumber 降序）。
+     * 全 0 命中返回 null，调用方据此退回按字数切。
+     */
+    private fun bestRule(content: String, rules: List<TxtTocRule>): TxtTocRule? {
         var maxNum = 1
         var bestRule: TxtTocRule? = null
         for (tocRule in rules) {
-            val pattern = try {
-                Regex(tocRule.chapterRule, RegexOption.MULTILINE)
-            } catch (e: PatternSyntaxException) {
-                AppLog.put("TXT目录规则正则语法错误:${tocRule.name}\n$e", e)
-                continue
-            }
-            var start = 0
-            var num = 0
-            for (m in pattern.findAll(content)) {
-                if (start == 0 || m.range.first - start > 1000) {
-                    num++
-                    start = m.range.last + 1
-                }
-            }
+            val num = countMatches(content, tocRule)
             if (num >= maxNum) {
                 maxNum = num
                 bestRule = tocRule
             }
         }
         return bestRule
+    }
+
+    /**
+     * 命中计数：与上一个被接受的匹配相隔 > 1000 字符才算一章（防止把正文行当标题）。
+     * 正则语法错误只记日志并按 0 命中处理，不能让一条坏规则把整本书的分章搞失败。
+     */
+    private fun countMatches(content: String, tocRule: TxtTocRule): Int {
+        val pattern = try {
+            Regex(tocRule.chapterRule, RegexOption.MULTILINE)
+        } catch (e: PatternSyntaxException) {
+            AppLog.put("TXT目录规则正则语法错误:${tocRule.name}\n$e", e)
+            return 0
+        }
+        var start = 0
+        var num = 0
+        for (m in pattern.findAll(content)) {
+            if (start == 0 || m.range.first - start > 1000) {
+                num++
+                start = m.range.last + 1
+            }
+        }
+        return num
     }
 
     /**
