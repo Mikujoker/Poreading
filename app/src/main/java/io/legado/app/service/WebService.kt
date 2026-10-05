@@ -117,7 +117,10 @@ class WebService : BaseService() {
         isRun = true
         upTile(true)
         networkChangedListener.register()
-        networkChangedListener.onNetworkChanged = {
+        networkChangedListener.onNetworkChanged = networkChanged@{
+            // 服务可能已因端口占用等启动失败而销毁，注册的网络监听仍会迟到回调；
+            // 这里不挡掉的话会把已经停掉的服务重新广播成「运行中」，界面开关就会说谎。
+            if (!isRun) return@networkChanged
             val addressList = NetworkUtils.getLocalIPAddress()
             notificationList.clear()
             if (addressList.any()) {
@@ -200,11 +203,21 @@ class WebService : BaseService() {
             } catch (e: Exception) {
                 ktorServer?.stop()
                 ktorServer = null
+                // onCreate 里已经置过 isRun=true，启动失败必须回滚，否则开关会一直显示「已开启」
+                isRun = false
+                hostAddress = ""
+                networkChangedListener.unRegister()
+                postEvent(EventBus.WEB_SERVICE, "")
+                FlowEventBus.post(EventBus.WEB_SERVICE, "")
                 toastOnUi(e.localizedMessage ?: "")
                 e.printOnDebug()
                 stopSelf()
             }
         } else {
+            isRun = false
+            hostAddress = ""
+            postEvent(EventBus.WEB_SERVICE, "")
+            FlowEventBus.post(EventBus.WEB_SERVICE, "")
             toastOnUi("web service cant start, no ip address")
             stopSelf()
         }

@@ -659,6 +659,7 @@
     <string name="web_menu">Web服務</string>
     <string name="web_port_title">web埠</string>
     <string name="web_port_summary">目前埠 %s</string>
+    <string name="web_service_port_occupied">連接埠 %1$d 已被佔用，請到「其他設定 → Web 連接埠」換一個連接埠</string>
     <string name="qr_share">二維碼分享</string>
     <string name="str_share">字串分享</string>
     <string name="wifi_share">wifi分享</string>

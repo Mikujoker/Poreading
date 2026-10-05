@@ -32,6 +32,11 @@ import kotlinx.coroutines.withContext
 import splitties.init.appCtx
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
+import java.net.BindException
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import io.legado.app.R
 
 class KtorServer(private val port: Int) {
     private var server: EmbeddedServer<*, *>? = null
@@ -39,6 +44,7 @@ class KtorServer(private val port: Int) {
     private val assetsWeb = AssetsWeb("web")
 
     fun start() {
+        ensurePortFree(port)
         server = embeddedServer(CIO, port = port) {
             install(ContentNegotiation) {
                 gson {
@@ -151,6 +157,7 @@ class KtorServer(private val port: Int) {
     }
 
     fun startWebSocket(wsPort: Int) {
+        ensurePortFree(wsPort)
         wsServer = embeddedServer(CIO, port = wsPort) {
             install(WebSockets)
             routing {
@@ -165,6 +172,18 @@ class KtorServer(private val port: Int) {
                 }
             }
         }.start(wait = false)
+    }
+
+    /**
+     * Ktor(CIO) 把端口绑定放在引擎自己的协程里，绑定失败的 BindException 会在那里直接崩掉进程，
+     * 外层的 try/catch 接不到，所以启动前先用原生 Socket 探一次，把失败变成可被捕获的异常。
+     */
+    private fun ensurePortFree(port: Int) {
+        try {
+            ServerSocket().use { it.bind(InetSocketAddress(port)) }
+        } catch (e: IOException) {
+            throw BindException(appCtx.getString(R.string.web_service_port_occupied, port))
+        }
     }
 
     fun stop() {
