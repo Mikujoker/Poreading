@@ -69,6 +69,7 @@ import io.legado.app.model.BookCover
 import io.legado.app.utils.ChineseUtils
 import io.legado.app.utils.FirebaseManager
 import io.legado.app.utils.LogUtils
+import io.legado.app.utils.StartupTrace
 import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.getPrefString
 import io.legado.app.utils.isDebuggable
@@ -100,9 +101,12 @@ class App : Application(), SingletonImageLoader.Factory {
     }
 
     override fun onCreate() {
+        StartupTrace.reset()
+        StartupTrace.mark("App.onCreate 开始")
         // 首行初始化设置快照层：同步预加载 DataStore（触发 SP 迁移），
         // 之后所有 getPref* 门面读取均为纯内存查找，须先于一切主题/配置读取
         AppConfigStore.init(this)
+        StartupTrace.mark("AppConfigStore.init 完成（DataStore 预加载）")
         // 一次性迁移：把旧版语言偏好写入 AppCompat per-app locales，之后交由
         // autoStoreLocales 持久化。不能每次启动都执行——API 33+ 上会覆盖用户在
         // 系统设置里选择的应用语言，API <33 上此时 AppCompat 存储尚未加载、
@@ -115,6 +119,7 @@ class App : Application(), SingletonImageLoader.Factory {
             androidContext(this@App)
             modules(appDatabaseModule, appModule)
         }
+        StartupTrace.mark("Koin 完成")
         @Suppress("DEPRECATION")
         AppConfig.initialize(
             shellGateway = get(),
@@ -133,10 +138,12 @@ class App : Application(), SingletonImageLoader.Factory {
             configStore = get(),
             readSettingsGateway = get(),
         )
+        StartupTrace.mark("AppConfig/ReadBookConfig 初始化完成")
         if (legacyLanguage != null) {
             get<AppLocaleGateway>().migrateLegacyLanguage(legacyLanguage)
         }
         applyDayNightInit(this)
+        StartupTrace.mark("applyDayNightInit 完成")
         if (getPrefString("app_theme", "0") == "12") {
             if (themeGateway.currentSettings.customMode == "accent")
                 setTheme(R.style.ThemeOverlay_WhiteBackground)
@@ -170,6 +177,7 @@ class App : Application(), SingletonImageLoader.Factory {
             }
         }
         super.onCreate()
+        StartupTrace.mark("super.onCreate 完成")
         FirebaseManager.init(this)
         CrashHandler(this)
         if (isDebuggable) {
@@ -183,6 +191,7 @@ class App : Application(), SingletonImageLoader.Factory {
         // 普通 Context，强转 RhinoContext 会直接崩溃并把该线程永久污染。
         // 这里改为在 onCreate 中同步执行；RhinoWrapFactory 注册同理要早于任何脚本执行。
         initRhino()
+        StartupTrace.mark("initRhino 完成（onCreate 主体结束）")
         Coroutine.async {
             get<BackupSettingsGateway>().settings
                 .map {

@@ -560,6 +560,8 @@ private val coverArtBitmap: ImageBitmap? by lazy {
  * 从外挂字体目录读（B3 约定），读不到就往后回退，不能因为缺字体把封面画崩。
  */
 private val coverTitleTypeface: Typeface by lazy {
+    val t0 = System.currentTimeMillis()
+    io.legado.app.utils.StartupTrace.mark("封面字体开始加载")
     val dir = File(FileUtils.getSdCardPath(), "legado/fonts")
     listOf("ZhiMangXing-Regular.ttf", "MaShanZheng-Regular.ttf", "LXGWWenKaiScreen.ttf")
         .firstNotNullOfOrNull { name ->
@@ -567,7 +569,9 @@ private val coverTitleTypeface: Typeface by lazy {
                 File(dir, name).takeIf(File::isFile)?.let { Typeface.createFromFile(it) }
             }.getOrNull()
         }
-        ?: Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+        ?: Typeface.create(Typeface.SERIF, Typeface.NORMAL).also {
+            io.legado.app.utils.StartupTrace.mark("封面字体加载完成 +${System.currentTimeMillis() - t0}ms")
+        }
 }
 
 /** 印章里的作者名：1~2 字竖排，3~4 字排成两行（最多刻 4 个字）。 */

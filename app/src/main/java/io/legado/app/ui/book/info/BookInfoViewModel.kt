@@ -602,8 +602,8 @@ class BookInfoViewModel(
         }
     }
 
-    fun onInfoEdited() {
-        currentBook?.bookUrl?.let { bookUrl ->
+    fun onInfoEdited(newBookUrl: String? = null) {
+        (newBookUrl ?: currentBook?.bookUrl)?.let { bookUrl ->
             execute {
                 val book = bookRepository.getBook(bookUrl) ?: return@execute null
                 val source = if (book.isLocal) {

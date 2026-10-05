@@ -96,6 +96,9 @@ fun BookInfoRouteScreen(
     val unlockUsePassword = stringResource(R.string.private_unlock_use_password)
     val noPasswordHint = stringResource(R.string.private_content_no_password)
     var showSelectBooksDirSheet by remember { mutableStateOf(false) }
+    // 改名会连源文件一起改、bookUrl 随之变化：用这份可变 URL，
+    // 编辑页保存后立刻按新 URL 重载 —— 不必退出详情页再进来
+    var currentBookUrl by remember(bookUrl) { mutableStateOf(bookUrl) }
 
     val canMorphBack = isTopRoute &&
             uiState.dialog == null &&
@@ -103,7 +106,7 @@ fun BookInfoRouteScreen(
             !showSelectBooksDirSheet &&
             !uiState.showAppLogSheet &&
             !uiState.showPrivatePasswordDialog
-    val effectiveCoverKey = sharedCoverKey ?: bookCoverSharedElementKey(bookUrl)
+    val effectiveCoverKey = sharedCoverKey ?: bookCoverSharedElementKey(currentBookUrl)
     var isDismissed by remember { mutableStateOf(false) }
     var finishResultCode by remember { mutableStateOf<Int?>(null) }
     var finishAfterTransition by remember { mutableStateOf(false) }
@@ -146,13 +149,17 @@ fun BookInfoRouteScreen(
         StartActivityContract(BookInfoEditActivity::class.java)
     ) {
         if (it.resultCode == Activity.RESULT_OK) {
-            viewModel.onInfoEdited()
+            val renamedUrl = it.data
+                ?.getStringExtra(BookInfoEditActivity.EXTRA_NEW_BOOK_URL)
+                ?.takeIf(String::isNotBlank)
+            renamedUrl?.let { new -> currentBookUrl = new }
+            viewModel.onInfoEdited(renamedUrl)
         }
     }
 
-    LaunchedEffect(bookUrl, name, author, origin, coverPath, viewModel) {
+    LaunchedEffect(currentBookUrl, name, author, origin, coverPath, viewModel) {
         viewModel.initData(
-            bookUrl = bookUrl,
+            bookUrl = currentBookUrl,
             name = name,
             author = author,
             origin = origin,

@@ -8,6 +8,11 @@ import io.legado.app.ui.main.MainActivity
 
 class BookInfoEditActivity : BaseComposeActivity() {
 
+    companion object {
+        /** 连源文件改名后的新 bookUrl，详情页据此立刻重载（否则页面还挂在旧 URL 上）。 */
+        const val EXTRA_NEW_BOOK_URL = "newBookUrl"
+    }
+
     private val viewModel by viewModel<BookInfoEditViewModel>()
 
     @Composable
@@ -17,7 +22,8 @@ class BookInfoEditActivity : BaseComposeActivity() {
             onBack = { finish() },
             onSave = {
                 viewModel.save(onSuccess = {
-                    setResult(RESULT_OK)
+                    viewModel.renamedBookUrl?.let { intent.putExtra(EXTRA_NEW_BOOK_URL, it) }
+                    setResult(RESULT_OK, intent)
                     finish()
                 })
             },

@@ -125,11 +125,24 @@ class BookInfoEditViewModel(
         _uiState.value = _uiState.value.copy(coverUrl = book?.coverUrl ?: "")
     }
 
-    /** 本地书且改了书名 —— 保存前该问一次「要不要连源文件一起改」。 */
+    /** 连源文件一起改名后的新 bookUrl；没改名则为 null。编辑页把它回传给详情页。 */
+    var renamedBookUrl: String? = null
+        private set
+
+    /**
+     * 保存前该不该问「要不要连源文件一起改」。
+     *
+     * 判据不是「书名变了」，而是**书名与磁盘上的文件名对不上** —— 这样两类情况都会问：
+     * 刚改了书名，以及书名和文件名本来就不一致（比如文件是乱码名）。只有两者一致时才不问。
+     */
     fun shouldAskRenameSource(): Boolean {
         val current = _uiState.value
         val target = book ?: return false
-        return target.isLocal && current.name.trim() != target.name
+        if (!target.isLocal) return false
+        val sourceFile = java.io.File(target.bookUrl)
+        if (!sourceFile.isFile) return false
+        val fileName = sourceFile.name.substringBeforeLast('.')
+        return current.name.trim() != fileName
     }
 
     fun save(onSuccess: () -> Unit, renameSourceFile: Boolean = false) {
@@ -141,6 +154,7 @@ class BookInfoEditViewModel(
                     // 先把磁盘文件与库内引用一起搬过去（返回 null 表示没搬成，就只改书名）
                     LocalBookRename.rename(oldBook, currentState.name)?.let { newUrl ->
                         book.bookUrl = newUrl
+                        renamedBookUrl = newUrl
                         // 库里的 originName 已被迁移改成新文件名，内存这份必须跟上：
                         // 否则下面 update(book) 会把整行写回，把旧文件名（乱码）又盖回去
                         book.originName = java.io.File(newUrl).name

@@ -98,7 +98,11 @@ fun BookInfoEditScreen(
     if (askRenameSource) {
         AppAlertDialog(
             show = true,
-            onDismissRequest = { askRenameSource = false },
+            // 点空白也算「只改书名」：用户已经按过保存，静默丢弃保存是坑
+            onDismissRequest = {
+                askRenameSource = false
+                viewModel.save(onSave)
+            },
             title = stringResource(R.string.book_rename_source_title),
             confirmText = stringResource(R.string.book_rename_source_confirm),
             onConfirm = {
