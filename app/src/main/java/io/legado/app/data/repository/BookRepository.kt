@@ -11,6 +11,7 @@ import io.legado.app.ui.main.bookshelf.BookShelfItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 
 class BookRepository(
     private val bookDao: BookDao,
@@ -190,6 +191,14 @@ class BookRepository(
         withContext(Dispatchers.IO) {
             bookChapterDao.delByBook(bookUrl)
         }
+    }
+
+    /**
+     * 全部本地书。给「对所有本地 TXT 重新分章」这类一次性维护动作用：本地书的章节表是
+     * 懒生成 + 落库的，换了目录规则不会自动重算，必须整本重跑一遍分章。
+     */
+    suspend fun getAllLocalBooks(): List<Book> = withContext(Dispatchers.IO) {
+        bookDao.flowLocal().first()
     }
 
     suspend fun replaceChaptersAndUpdateBook(book: Book, chapters: List<BookChapter>) {

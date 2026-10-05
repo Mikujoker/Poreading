@@ -4,12 +4,17 @@ import android.app.Application
 import androidx.lifecycle.viewModelScope
 import io.legado.app.R
 import io.legado.app.base.BaseRuleViewModel
+import io.legado.app.constant.AppLog
 import io.legado.app.data.entities.TxtTocRule
+import io.legado.app.data.repository.BookRepository
 import io.legado.app.data.repository.TxtTocRuleRepository
 import io.legado.app.data.repository.UploadRepository
 import io.legado.app.ui.widget.components.importComponents.BaseImportUiState
 import io.legado.app.ui.widget.components.list.InteractionState
 import io.legado.app.help.DefaultData
+import io.legado.app.help.book.isLocalTxt
+import io.legado.app.model.ReadBook
+import io.legado.app.model.localBook.LocalBook
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonArray
 import io.legado.app.utils.fromJsonObject
@@ -27,6 +32,7 @@ class TxtTocRuleViewModel(
     application: Application,
     uploadRepository: UploadRepository,
     private val repository: TxtTocRuleRepository,
+    private val bookRepository: BookRepository,
 ) : BaseRuleViewModel<TxtTocRuleItemUi, TxtTocRule, Long, TxtTocRuleUiState>(
     application,
     TxtTocRuleUiState(interaction = InteractionState(isLoading = true)),
@@ -79,6 +85,7 @@ class TxtTocRuleViewModel(
             is TxtTocRuleIntent.UpdateImportItem -> updateImportItem(intent.index, intent.rule)
             TxtTocRuleIntent.SaveImportedRules -> saveImportedRules()
             TxtTocRuleIntent.ImportBuiltInRules -> importBuiltInRules()
+            TxtTocRuleIntent.ReSplitLocalBooks -> reSplitLocalBooks()
         }
     }
 
@@ -184,6 +191,37 @@ class TxtTocRuleViewModel(
 
     private fun copyRule(rule: TxtTocRule) {
         context.sendToClip(GSON.toJson(rule))
+    }
+
+    /**
+     * 用当前规则把所有本地 TXT 重新分章并替换章节表。
+     *
+     * 存在的理由：本地书的章节表是懒生成 + 落库的，改了目录规则**不会**自动重算；而书架的
+     * 「更新目录」把本地书过滤掉了（`!it.isLocal && it.canUpdate`），只能一本本打开目录页点
+     * 「更新目录」。230 本这么干不现实，所以给规则页一个一次性入口。
+     */
+    private fun reSplitLocalBooks() = viewModelScope.launch(Dispatchers.IO) {
+        val books = bookRepository.getAllLocalBooks().filter { it.isLocalTxt }
+        var ok = 0
+        var failed = 0
+        books.forEach { book ->
+            runCatching {
+                LocalBook.getChapterList(book).let { chapters ->
+                    bookRepository.replaceChaptersAndUpdateBook(book, chapters)
+                    ReadBook.onChapterListUpdated(book)
+                }
+            }.onSuccess {
+                ok++
+            }.onFailure {
+                failed++
+                AppLog.put("重新分章失败：${book.name}\n${it.localizedMessage}", it)
+            }
+        }
+        _effects.tryEmit(
+            TxtTocRuleEffect.ShowMessage(
+                context.getString(R.string.re_split_local_txt_done, ok, failed)
+            )
+        )
     }
 
     private fun importBuiltInRules() {

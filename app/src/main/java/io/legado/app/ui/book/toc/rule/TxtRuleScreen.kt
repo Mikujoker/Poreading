@@ -376,6 +376,10 @@ fun TxtRuleScreen(
                 text = stringResource(R.string.import_built_in_rules),
                 onClick = { onIntent(TxtTocRuleIntent.ImportBuiltInRules); dismiss() }
             )
+            RoundDropdownMenuItem(
+                text = stringResource(R.string.re_split_local_txt),
+                onClick = { onIntent(TxtTocRuleIntent.ReSplitLocalBooks); dismiss() }
+            )
         }
     ) { paddingValues ->
         Box(

@@ -350,7 +350,20 @@ class TextFile(private var book: Book) {
         }
         System.gc()
         System.runFinalization()
-        return toc to bookWordCount
+        return readableTitles(toc) to bookWordCount
+    }
+
+    /**
+     * 分隔线类规则命中到的"标题"其实没有可读内容（`※※※`、`————`），直接拿来当章名会让目录里
+     * 出现一串一模一样的破折号。只在整行没有任何字母/数字时才改成序号名，其余保持原样。
+     */
+    private fun readableTitles(toc: ArrayList<BookChapter>): ArrayList<BookChapter> {
+        toc.forEachIndexed { index, chapter ->
+            if (chapter.title.orEmpty().none { it.isLetterOrDigit() }) {
+                chapter.title = "第${index + 1}节"
+            }
+        }
+        return toc
     }
 
     /**

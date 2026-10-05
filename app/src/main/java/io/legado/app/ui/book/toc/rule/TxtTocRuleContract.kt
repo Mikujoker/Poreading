@@ -53,6 +53,8 @@ sealed interface TxtTocRuleIntent {
     data class UpdateImportItem(val index: Int, val rule: TxtTocRule) : TxtTocRuleIntent
     data object SaveImportedRules : TxtTocRuleIntent
     data object ImportBuiltInRules : TxtTocRuleIntent
+    /** 用当前规则把所有本地 TXT 重新分章并替换章节表（改了规则之后的一次性维护动作） */
+    data object ReSplitLocalBooks : TxtTocRuleIntent
 }
 
 sealed interface TxtTocRuleEffect {

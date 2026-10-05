@@ -544,6 +544,8 @@
     <string name="layout_mode_grid">Grid</string>
     <string name="manage">Manage</string>
     <string name="import_built_in_rules">Import Built-in Rules</string>
+    <string name="re_split_local_txt">Re-split All Local TXT</string>
+    <string name="re_split_local_txt_done">Re-split done: %1$d ok, %2$d failed</string>
 	<string name="grid_style">Grid Style</string>
 	<string name="compact_title_font">Compact Title Font</string>
 	<string name="center_aligned_title">Center-Aligned Title</string>

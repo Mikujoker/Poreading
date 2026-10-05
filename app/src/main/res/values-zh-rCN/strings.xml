@@ -514,6 +514,8 @@
     <string name="layout_mode_grid">网格</string>
     <string name="manage">管理</string>
     <string name="import_built_in_rules">导入内置规则</string>
+    <string name="re_split_local_txt">对所有本地 TXT 重新分章</string>
+    <string name="re_split_local_txt_done">重新分章：成功 %1$d 本，失败 %2$d 本</string>
 	<string name="grid_style">网格模式</string>
 	<string name="compact_title_font">标题小字体</string>
 	<string name="center_aligned_title">标题居中</string>
