@@ -58,6 +58,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
+import io.legado.app.ui.theme.LegadoTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
@@ -206,6 +208,22 @@ fun MangaReaderScreen(
         remember(state.bookUrl) { mutableStateMapOf<String, MangaPageEdgeColors>() }
     val currentPageKey = state.pages.getOrNull(state.currentItemIndex)?.key
     val readerBackground = state.settings.backgroundColor.copy(alpha = 1f)
+    // PDF 一页铺满整屏，背景占比很大：默认的纯黑在这种场景下又重又“电子”。
+    // 换成米纸底 + 一点粉/蓝/紫的极淡对角渐变（DESIGN.md 的暖色约束：明色走米纸、不用纯黑）。
+    // 只对 PDF 生效；深色主题不换，避免半夜刺眼。
+    val isPdfLightBackdrop = state.bookUrl.endsWith(".pdf", true) && !LegadoTheme.isDark
+    val readerBackgroundBrush: Brush = remember(isPdfLightBackdrop, readerBackground) {
+        if (isPdfLightBackdrop) {
+            Brush.linearGradient(
+                0f to Color(0xFFF7F2EA),
+                0.38f to Color(0xFFF5EFF3),
+                0.72f to Color(0xFFF0F1F6),
+                1f to Color(0xFFF3F0F7),
+            )
+        } else {
+            SolidColor(readerBackground)
+        }
+    }
     val currentPageColor = automaticBackgrounds[currentPageKey]?.top
 
     LaunchedEffect(
@@ -256,7 +274,7 @@ fun MangaReaderScreen(
                 .fillMaxSize()
                 .onSizeChanged { viewportSize = it }
                 .onGloballyPositioned { viewportOrigin = it.positionInRoot() }
-                .background(readerBackground)
+                .background(readerBackgroundBrush)
         ) {
             Box(
                 Modifier
@@ -269,7 +287,7 @@ fun MangaReaderScreen(
                         }
                     )
                     .layerBackdrop(menuBackdrop)
-                    .background(readerBackground)
+                    .background(readerBackgroundBrush)
             ) {
                 when (state.settings.scrollMode) {
                     MangaScrollMode.PAGE_LEFT_TO_RIGHT,

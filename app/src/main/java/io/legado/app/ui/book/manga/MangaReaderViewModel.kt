@@ -18,6 +18,7 @@ import io.legado.app.domain.model.manga.MangaSessionCommand
 import io.legado.app.domain.model.manga.MangaSessionEvent
 import io.legado.app.domain.model.manga.MangaSessionState
 import io.legado.app.domain.model.settings.MangaSettings
+import io.legado.app.ui.book.manga.config.MangaScrollMode
 import io.legado.app.domain.usecase.CacheBookChaptersUseCase
 import io.legado.app.help.coil.CoverFetcher
 import io.legado.app.help.glide.progress.ProgressManager
@@ -495,7 +496,12 @@ class MangaReaderViewModel(
                     targetChapterIndex + 1,
                 ).takeIf { targetExists }
             return when (chapter) {
-            is MangaChapterState.Ready -> listOf(
+            // PDF 是「一页一章」：每翻一页都会命中这个分支，若照常插入"换章"整屏，
+            // 阅读时就会一页正文夹一屏黑底章节提示。错误态（Failed/Empty）照旧保留，
+            // 那里有重试入口，不能省。
+            is MangaChapterState.Ready -> if (session.book.bookUrl.endsWith(".pdf", true)) {
+                emptyList()
+            } else listOf(
                 MangaReaderItemUi.ChapterTransition(
                     key = "transition:$edgePrefix:${session.chapterIndex}:ready",
                     direction = direction,
@@ -1357,7 +1363,13 @@ class MangaReaderViewModel(
         val footer = GSON.fromJsonObject<MangaFooterConfig>(settings.footerConfig)
             .getOrNull() ?: MangaFooterConfig()
         return MangaReaderSettings(
-        scrollMode = readerSession.state.value.book?.scrollMode ?: settings.scrollMode,
+        // PDF 走连续滚动（条漫式）：分页模式下 PDF 是"一页一章"，每翻一页都插一屏换章提示，
+        // 读起来像在不停切章；上下连续滚动才是文档该有的手感，而且那个模式没有换章层。
+        scrollMode = if (readerSession.state.value.book?.bookUrl?.endsWith(".pdf", true) == true) {
+            MangaScrollMode.WEBTOON_WITH_GAP
+        } else {
+            readerSession.state.value.book?.scrollMode ?: settings.scrollMode
+        },
         sidePaddingPercent = readerSession.state.value.book?.sidePaddingDp
             ?: settings.webtoonSidePaddingDp,
         backgroundColor = Color(settings.background),
