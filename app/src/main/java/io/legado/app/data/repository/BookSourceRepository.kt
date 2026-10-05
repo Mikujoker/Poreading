@@ -1,6 +1,7 @@
 package io.legado.app.data.repository
 
 import io.legado.app.data.dao.BookSourceDao
+import io.legado.app.data.entities.SourceRuleFlags
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.help.source.SourceHelp
@@ -16,6 +17,10 @@ class BookSourceRepository(private val bookSourceDao: BookSourceDao) {
 
     fun flowEnabled(): Flow<List<BookSourcePart>> {
         return bookSourceDao.flowEnabled()
+    }
+
+    fun flowRuleFlags(): Flow<List<SourceRuleFlags>> {
+        return bookSourceDao.flowRuleFlags()
     }
 
     fun flowGroups(): Flow<List<String>> {

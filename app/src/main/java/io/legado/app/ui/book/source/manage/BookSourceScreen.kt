@@ -30,6 +30,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -166,6 +168,8 @@ fun BookSourceScreen(
 ) {
     val context = LocalContext.current
     val rules = state.items
+    val scope = rememberCoroutineScope()
+    val aiFixSoonMessage = stringResource(R.string.source_ai_fix_soon)
     val selectedIds = state.selectedIds
     val listState = rememberLazyListState()
     var deleteIds by remember { mutableStateOf<Set<String>?>(null) }
@@ -587,6 +591,18 @@ fun BookSourceScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // 健康度统计条放在列表首项：随列表滚动，且不用改共享的 RuleListScaffold。
+                // 进入选择模式后隐藏，避免和选择操作栏抢注意力。
+                if (selectedIds.isEmpty()) {
+                    item(key = "health-strip", contentType = "health-strip") {
+                        SourceHealthStrip(
+                            counts = state.healthCounts,
+                            selected = state.healthFilter,
+                            onSelect = { onIntent(BookSourceIntent.SetHealthFilter(it)) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
                 displayedRules.forEachIndexed { index, item ->
                     if (state.groupByDomain && (index == 0 || displayedRules[index - 1].domain != item.domain)) {
                         item(key = "domain:${item.domain}", contentType = "domain-header") {
@@ -631,6 +647,18 @@ fun BookSourceScreen(
                         ReorderableSelectionItem(
                             state = reorderState,
                             key = item.id,
+                            // 状态只靠颜色表达，不加文字徽章：底色淡一层，左侧一个色块
+                            containerColor = sourceHealthTint(item.health).copy(alpha = 0.06f),
+                            selectedContainerColor = sourceHealthTint(item.health).copy(alpha = 0.16f),
+                            leadingContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .width(3.dp)
+                                        .height(26.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(sourceHealthTint(item.health))
+                                )
+                            },
                             reorderIndex = index,
                             reorderItemCount = displayedRules.size,
                             onMoveItem = { from, to ->
@@ -708,6 +736,12 @@ fun BookSourceScreen(
                                     onLogin = { onLoginSource(item.id) },
                                     onSearch = { onSearchSource(item.name, item.id) },
                                     onDebug = { onDebugSource(item.id) },
+                                    onAiFix = {
+                                        // AI 修复还没接上（见 TODO D2），先给个明确回执，不做假动作
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar(aiFixSoonMessage)
+                                        }
+                                    },
                                     onDelete = { deleteIds = setOf(item.id) },
                                     onSetExploreEnabled = { enabled ->
                                         onIntent(
@@ -845,6 +879,7 @@ private fun BookSourceItemMenu(
     onLogin: () -> Unit,
     onSearch: () -> Unit,
     onDebug: () -> Unit,
+    onAiFix: () -> Unit,
     onDelete: () -> Unit,
     onSetExploreEnabled: (Boolean) -> Unit,
 ) {
@@ -877,6 +912,9 @@ private fun BookSourceItemMenu(
             })
             RoundDropdownMenuItem(stringResource(R.string.debug), onClick = {
                 dismiss(); onDebug()
+            })
+            RoundDropdownMenuItem(stringResource(R.string.source_ai_fix), onClick = {
+                dismiss(); onAiFix()
             })
             RoundDropdownMenuItem(stringResource(R.string.delete), onClick = {
                 dismiss(); onDelete()

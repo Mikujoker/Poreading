@@ -10,8 +10,10 @@ import io.legado.app.ui.widget.components.list.InteractionState
 import io.legado.app.ui.widget.components.list.ListUiState
 import io.legado.app.ui.widget.components.list.SelectableItem
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 
 @Immutable
@@ -26,6 +28,10 @@ data class BookSourceItemUi(
     val hasExploreUrl: Boolean,
     val checkMessage: String? = null,
     val customOrder: Int,
+    /** 健康度，见 SourceHealth */
+    val health: SourceHealth,
+    /** 累计搜索响应耗时（毫秒）；<=1 视为从未真正测过 */
+    val respondTime: Long,
 ) : SelectableItem<String> {
 }
 
@@ -51,6 +57,10 @@ data class BookSourceUiState(
     val sortAscending: Boolean = true,
     val groupByDomain: Boolean = false,
     val importState: BaseImportUiState<BookSource> = BaseImportUiState.Idle,
+    /** 全部书源（不受筛选影响）的五级计数，用于顶部统计条 */
+    val healthCounts: ImmutableMap<SourceHealth, Int> = persistentMapOf(),
+    /** 当前选中的健康度筛选 */
+    val healthFilter: SourceHealth? = null,
     val checkProgress: String? = null,
     val checkOptions: BookSourceCheckOptionsUi = BookSourceCheckOptionsUi(),
     val interaction: InteractionState = InteractionState(isLoading = true),
@@ -65,6 +75,7 @@ sealed interface BookSourceIntent {
     data class SetSelection(val ids: Set<String>) : BookSourceIntent
     data class ToggleSelection(val id: String) : BookSourceIntent
     data class SetFilter(val filter: String?) : BookSourceIntent
+    data class SetHealthFilter(val health: SourceHealth?) : BookSourceIntent
     data class SetSort(val sort: BookSourceSort) : BookSourceIntent
     data object ToggleSortDirection : BookSourceIntent
     data object ToggleGroupByDomain : BookSourceIntent

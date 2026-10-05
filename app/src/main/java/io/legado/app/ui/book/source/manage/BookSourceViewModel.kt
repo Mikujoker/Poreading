@@ -40,6 +40,7 @@ import io.legado.app.utils.isJsonObject
 import io.legado.app.utils.isUri
 import io.legado.app.utils.splitNotBlank
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -47,6 +48,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
@@ -74,6 +76,7 @@ class BookSourceViewModel(
     private val searchKey = MutableStateFlow("")
     private val isSearchMode = MutableStateFlow(false)
     private val filter = MutableStateFlow<String?>(null)
+    private val healthFilter = MutableStateFlow<SourceHealth?>(null)
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val sort = MutableStateFlow(BookSourceSort.Default)
     private val sortAscending = MutableStateFlow(true)
@@ -111,8 +114,8 @@ class BookSourceViewModel(
         }
     }
 
-    private val sourceFilter = combine(searchKey, filter) { query, activeFilter ->
-        SourceFilter(query, activeFilter)
+    private val sourceFilter = combine(searchKey, filter, healthFilter) { query, activeFilter, health ->
+        SourceFilter(query, activeFilter, health)
     }
 
     private val sourceSort = combine(sort, sortAscending, groupByDomain) {
@@ -123,13 +126,52 @@ class BookSourceViewModel(
         SourceSort(activeSort, ascending, byDomain)
     }
 
+    /**
+     * 规则快照按 url 建索引。必须 stateIn：它是冷流，下面有三处消费，
+     * 不共享的话每次变化都要把两万多条重新建三遍索引。
+     */
+    private val ruleFlagsByUrl = repository.flowRuleFlags()
+        .map { flags -> flags.associateBy { it.bookSourceUrl } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** 全量健康度索引：一次遍历同时得出「每条的状态」和「五级计数」。 */
+    private data class HealthIndex(
+        val byUrl: Map<String, SourceHealth>,
+        val counts: Map<SourceHealth, Int>,
+    ) {
+        companion object {
+            val EMPTY = HealthIndex(emptyMap(), emptyMap())
+        }
+    }
+
+    /**
+     * 计数的输入是全量、与筛选无关，所以单独从 flowAll 算；
+     * 并且只做**一次**遍历，供统计条、筛选、列表显示三处共用。
+     */
+    private val healthIndex =
+        combine(repository.flowAll(), ruleFlagsByUrl, enabledOverrides) { all, flags, overrides ->
+            val byUrl = HashMap<String, SourceHealth>(all.size)
+            val counts = HashMap<SourceHealth, Int>(8)
+            all.forEach { part ->
+                val health = part.health(flags[part.bookSourceUrl], overrides[part.bookSourceUrl])
+                byUrl[part.bookSourceUrl] = health
+                counts[health] = (counts[health] ?: 0) + 1
+            }
+            HealthIndex(byUrl, counts)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HealthIndex.EMPTY)
+
     private val importedOrFilteredItems = combine(
         repository.flowAll(),
         localItems,
         sourceFilter,
-    ) { sourceItems, local, activeFilter ->
+        healthIndex,
+    ) { sourceItems, local, activeFilter, index ->
         if (local == null) {
             sourceItems.filterFor(activeFilter.name, activeFilter.query)
+                .filter {
+                    activeFilter.health == null ||
+                        index.byUrl[it.bookSourceUrl] == activeFilter.health
+                }
         } else {
             val latestById = sourceItems.associateBy { it.bookSourceUrl }
             local.mapNotNull { latestById[it.bookSourceUrl] }
@@ -162,7 +204,8 @@ class BookSourceViewModel(
         visibleItems,
         repository.flowGroups(),
         listConfiguration,
-    ) { visible, groups, configuration ->
+        healthIndex,
+    ) { visible, groups, configuration, index ->
         BookSourceUiState(
             items = visible.map { source ->
                 BookSourceItemUi(
@@ -175,6 +218,8 @@ class BookSourceViewModel(
                     hasLoginUrl = source.hasLoginUrl,
                     hasExploreUrl = source.hasExploreUrl,
                     customOrder = source.customOrder,
+                    health = index.byUrl[source.bookSourceUrl] ?: SourceHealth.IDLE,
+                    respondTime = source.respondTime,
                 )
             }.toImmutableList(),
             selectedIds = configuration.selectedIds.intersect(visible.map { it.bookSourceUrl }.toSet())
@@ -186,6 +231,8 @@ class BookSourceViewModel(
             sort = configuration.sort.sort,
             sortAscending = configuration.sort.ascending,
             groupByDomain = configuration.sort.groupByDomain,
+            healthCounts = index.counts.toImmutableMap(),
+            healthFilter = configuration.filter.health,
             interaction = io.legado.app.ui.widget.components.list.InteractionState(
                 isSearchMode = configuration.isSearchMode,
             ),
@@ -196,6 +243,7 @@ class BookSourceViewModel(
     private data class SourceFilter(
         val query: String,
         val name: String?,
+        val health: SourceHealth?,
     )
 
     private data class SourceSort(
@@ -258,6 +306,10 @@ class BookSourceViewModel(
             is BookSourceIntent.ToggleSelection -> selectedIds.update { if (intent.id in it) it - intent.id else it + intent.id }
             is BookSourceIntent.SetFilter -> {
                 localItems.value = null; filter.value = intent.filter
+            }
+
+            is BookSourceIntent.SetHealthFilter -> {
+                localItems.value = null; healthFilter.value = intent.health
             }
 
             is BookSourceIntent.SetSort -> {

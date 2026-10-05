@@ -2985,4 +2985,16 @@
     <string name="home_capsule_restore_navigation">恢復導覽列</string>
     <string name="home_capsule_expand_controls">展開播放控制</string>
     <string name="home_capsule_chapter">第 %d 章</string>
+    <string name="source_health_active">在用</string>
+    <string name="source_health_idle">待觀察</string>
+    <string name="source_health_frozen">冷凍</string>
+    <string name="source_health_need_fix">待修</string>
+    <string name="source_health_broken">壞源</string>
+    <string name="source_batch_fix">修復</string>
+    <string name="source_batch_freeze">凍結</string>
+    <string name="source_batch_enable">啟用</string>
+    <string name="source_batch_delete">刪除</string>
+    <string name="source_batch_cancel">取消</string>
+    <string name="source_ai_fix">AI 修復</string>
+    <string name="source_ai_fix_soon">AI 修復即將可用</string>
 </resources>

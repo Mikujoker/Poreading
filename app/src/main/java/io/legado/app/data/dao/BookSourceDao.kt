@@ -10,6 +10,7 @@ import androidx.room.Update
 import io.legado.app.constant.AppPattern
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.BookSourcePart
+import io.legado.app.data.entities.SourceRuleFlags
 import io.legado.app.utils.cnCompare
 import io.legado.app.utils.splitNotBlank
 import kotlinx.coroutines.Dispatchers.IO
@@ -22,6 +23,19 @@ interface BookSourceDao {
 
     @Query("select * from book_sources_part order by customOrder asc")
     fun flowAll(): Flow<List<BookSourcePart>>
+
+    /**
+     * 规则是否为空。sources 里规则以 JSON 文本存储，全空时序列化为 "{}"，
+     * 所以直接用 SQL 判空，避免把两万多条完整实体读进内存。
+     */
+    @Query(
+        """select bookSourceUrl,
+        (ruleSearch is null or trim(ruleSearch) in ('', '{}', 'null')) as searchBlank,
+        (ruleToc is null or trim(ruleToc) in ('', '{}', 'null')) as tocBlank,
+        (ruleContent is null or trim(ruleContent) in ('', '{}', 'null')) as contentBlank
+        from book_sources"""
+    )
+    fun flowRuleFlags(): Flow<List<SourceRuleFlags>>
 
     @Query(
         """select bp.*
