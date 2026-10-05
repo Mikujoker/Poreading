@@ -115,6 +115,7 @@ import io.legado.app.ui.book.group.GroupEditSheet
 import io.legado.app.ui.book.info.GroupSelectSheet
 import io.legado.app.ui.main.bookCoverSharedElementKey
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.MotionSpec
 import io.legado.app.ui.theme.ProvideAppDensity
 import io.legado.app.ui.theme.ThemeResolver
 import io.legado.app.ui.theme.adaptiveContentPaddingBookshelf
@@ -928,8 +929,10 @@ fun BookshelfScreen(
             ) {
                 folderTransition.AnimatedContent(
                 transitionSpec = {
-                    val easing = FastOutSlowInEasing
-                    val duration = 480
+                    // 原来 480ms：超过 DESIGN-REFERENCE 的 300ms 上限，切换会显钝。
+                    // 收敛到统一 token：进入 ease-out 240ms
+                    val easing = MotionSpec.EaseOut
+                    val duration = MotionSpec.EnterMs
                     if (targetState) {
                         (fadeIn(animationSpec = tween(duration, easing = easing)) +
                                 scaleIn(

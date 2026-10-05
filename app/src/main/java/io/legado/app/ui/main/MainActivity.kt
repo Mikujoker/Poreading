@@ -415,6 +415,7 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
     @OptIn(ExperimentalSharedTransitionApi::class)
     @Composable
     override fun Content() {
+        io.legado.app.utils.StartupTrace.mark("MainActivity.Content 首次合成")
         val orientation = resources.configuration.orientation
         val smallestWidthDp = resources.configuration.smallestScreenWidthDp
         val configuration = LocalAppUiConfiguration.current
