@@ -31,7 +31,7 @@ def add_laid_lines(img, rng, amp=2.6, gap=(24, 31)):
     d = ImageDraw.Draw(layer)
     y = 0
     while y < H:
-        d.line([0, y, W, y], fill=int(128 + rng.normal(0, amp)), width=1)
+        d.line([0, y, W, y], fill=int(128 - abs(rng.normal(0, amp))), width=1)
         y += int(rng.integers(*gap))
     layer = layer.filter(ImageFilter.GaussianBlur(0.6))
     arr = np.asarray(layer, np.float32) - 128.0
@@ -42,14 +42,18 @@ def add_laid_lines(img, rng, amp=2.6, gap=(24, 31)):
 
 
 def add_fibers(img, rng, count=22000, amp=8.0, length=(6, 32)):
-    """纤维：细短线随机朝向；先画在中性层再轻糊，避免看着像矢量线条。"""
+    """纤维：细短线随机朝向。
+
+    **只做暗线**：纸纤维在光下是阴影，只会比底色暗。早先写成 ±双向，
+    正向上那批就成了亮白斑点（用户原话「像得了白癜风」）。
+    """
     layer = Image.new('L', (W, H), 128)
     d = ImageDraw.Draw(layer)
     for _ in range(count):
         x, y = rng.integers(0, W), rng.integers(0, H)
         ang = rng.uniform(0, np.pi)
         ln = rng.integers(*length)
-        v = float(np.clip(rng.normal(0, amp), -70, 70))
+        v = -abs(float(rng.normal(0, amp)))          # 只减不增
         d.line([x, y, x + np.cos(ang) * ln, y + np.sin(ang) * ln],
                fill=int(128 + v), width=1)
     layer = layer.filter(ImageFilter.GaussianBlur(0.7))
@@ -65,8 +69,14 @@ def add_mottle(img, rng, amp, cell):
     return img + (a * amp)[..., None]
 
 
-def add_grain(img, rng, amp):
-    return img + (rng.normal(0, 1, (H, W)) * amp)[..., None]
+def add_grain(img, rng, amp, bright_cap=1.2):
+    """颗粒。
+
+    轻微不对称：亮端夹在 +bright_cap*amp（默认仅 +1.2σ），暗端留到 -2σ。
+    纸上不该有比底色还亮的孤立点（用户看到的就是「白点」）。
+    """
+    n = rng.normal(0, 1, (H, W))
+    return img + (np.clip(n, -2.0, bright_cap) * amp)[..., None]
 
 
 def save(img, path):
@@ -79,7 +89,7 @@ def main(out='app/src/main/assets/bg'):
 
     # 米纸·纸页（主体版本：用户选定）
     paper = add_grain(add_mottle(add_fibers(add_laid_lines(
-        add_light_gradient(base('#F4EDE0'), 6.0, -6.0), rng), rng), rng, 2.5, 30), rng, 5.0)
+        add_light_gradient(base('#F4EDE0'), 6.0, -6.0), rng), rng), rng, 1.5, 30), rng, 3.0)
     save(paper, f'{out}/kazusa-paper-page.jpg')
 
     # 米纸·纤维（纤维更重的手抄纸）
