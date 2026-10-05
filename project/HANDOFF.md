@@ -295,3 +295,71 @@ release 参考包可用 `/mnt/c/Users/mikujoker/legado-work/rel.apk`（debug 证
 
 现状：`me.ag2s.epublib` **只抽文本** → 用户要的"效果无损"做不到。
 计划：解析继续用 epublib，渲染改成 **WebView 加载 spine + 注入主题 CSS**；有内嵌封面就用内嵌的。
+
+---
+
+# 2026-10-06 第三轮（PDF 整本一章 · 一路滑到底不停顿）
+
+## 用户口径（这轮的原话）
+
+> 「我对 pdf 的期待就是要从下滑到上不会出现停顿，现在滑到分页的地方自然会停下要重新再划」
+> 「我希望我压根看不到加载那一下，我希望他能一直有预加载」
+
+## 结构（改了就是这条，别退回去）
+
+- **PDF = 整本一章**：会话里只有第 0 章，全部页都挂在这一章下（`LocalMangaLoader.loadPdf`）。
+  列表内容永远够滑，图片预取器第一次看得见后面几十页。
+- **DB 章节表仍是页级脚手架**（`localMangaLoader.chapters` 照旧返回 `第N页`）：
+  目录用它（页级条目、点一条跳页）、书架进度用它、`durChapterTitle` 用它。
+  **会话章数 = 1，章节表行数 = 页数**，两者不一致是有意为之。
+- **页图是惰性地址** `pdf-page-image://<书md5>/<页号>`，`PdfPageMapper`（Coil Mapper，
+  注册在 `appModule` 的 ImageLoader）在真正取图（**含预取**）时才光栅化。
+  `PdfPageFiles` 取图后按页号顺序**预渲染 8 页**。
+
+## 五个坑（改 PDF / 条漫前必读）
+
+1. **一页一章 + 会话窗口 ±1 章 = 每页撞墙**：列表里永远只有前/当/后 3 页内容，
+   滑到当前页底部前面就没东西 → 停顿 → 再划一次才补页。**连续滚动不能用「一页一章」。**
+2. **条漫换章判定旧规则在一页一章时永远不成立**：旧规则要求「当前章整章滚出视口」，
+   而 3 页内容 5377px 减一屏 2600px 最多滚 2777px，当前页底边在 3582px → 露在视口里出不去。
+   真机表现：第 1 页翻不到第 2 页。现在判定是「**视口阅读线（视口中心）所在的那一页**」。
+3. **光栅化不能放在章加载时**：一页一章时 `MangaChapterImagePrefetch` 只看得到当前 1 页，
+   预取形同虚设，翻快点就当场渲染 → 看见加载。惰性地址 + Mapper 才让预取带上"提前渲染"。
+4. **PDF 特判只覆盖了 `Ready`**：`Loading`/`Empty` 态仍会插一张带转圈的 96dp 换章卡片，
+   而且 Coil 淡入会让下一页以半透明出现——两个都像"在加载"。现在 PDF 非失败态一律不插卡片、关淡入。
+5. **进度口径**：书架百分比 = `(durChapterIndex + 1) / totalChapterNum`。
+   PDF 会话章号恒 0，所以 `durChapterIndex` 必须存**页号**（见 `openBook` / `persistProgress`），
+   `totalChapterNum` 仍是页数。写错了表现就是"永远 100%"或"永远 0%"。
+
+## 自愈
+
+PDF 章节表**行数 ≠ 页数**就按页重建（旧版留过「一段十页」的 `分段_N` 表）。
+不需要 adb 改库；打开一次就修好。**旧「一段十页」的阅读位置没有做换算**（算不准），
+那些书的续读位置可能比原来靠前。
+
+## 环境坑（新增，都踩过）
+
+1. **`adb shell am start` 会让 pi 的 bash 工具在那一行之后中断**（输出被吃、后续行不执行）。
+   驱动设备要写成脚本 + 后台跑：脚本里 `exec >/tmp/xxx.log 2>&1`，然后
+   `nohup bash <脚本> < /dev/null > /dev/null 2>&1 &`。
+   ⚠️ **这个 nohup 必须是那次 call 的第一条命令**；跟在长 adb 命令（如 install）后面时，
+   子进程会随 call 结束被清掉。
+2. `ReadMangaActivity` 是 `exported="false"`，shell 起不来（SecurityException）。
+   走主界面路由：`am start -n <pkg>/...MainActivity --es startRoute book/read/manga [--es bookUrl <路径>]`
+   （`ROUTE_READ_MANGA = "book/read/manga"`；不带 `bookUrl` = 「最近在读」那本）。
+3. 文件名里的 `&` 会让 adb shell 截断命令（番外篇就是这么没验成的）。
+4. `run-as` 里的相对路径和 `sh -c` 容易踩空：用**绝对路径**、
+   别用 `$D/*/` 这种要被外层 shell 展开的 glob，用 `find <绝对路径> -name '*.jpg'`。
+
+## 这轮的验证手法（比看画面更硬）
+
+- **浮层读数**：`第94页 · 页码 94/163 · 章节 1/1 · 进度 57.7%` —— 章节 1/1 证明整本一章，
+  94/163 = 57.7% 证明进度口径没坏，一次快滑 45→94 证明不撞墙。
+- **预渲染落盘数**：`adb shell run-as <pkg> find <cache>/local-manga/pdf-v2 -name '*.jpg' | wc -l`。
+- 崩溃只看 `grep -c 'Process: <pkg>'`。
+
+## 遗留
+
+- 番外篇 / 能天使 打开一次让章节表自愈（7 行 / 3 行的旧 `分段_N`）。
+- PDF 页缓存目录在会话结束仍会被清（沿用原设计）→ 每次重开要重新铺几页。
+- PDF 页缓存的磁盘占用不设上限（163 页约 65 MB，且 `close()` 会清）。

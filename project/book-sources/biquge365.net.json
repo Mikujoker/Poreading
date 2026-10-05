@@ -1,0 +1,30 @@
+{
+  "bookSourceName": "笔趣阁365",
+  "bookSourceGroup": "自建·样例",
+  "bookSourceUrl": "https://www.biquge365.net",
+  "bookSourceType": 0,
+  "bookSourceComment": "AI 书源工作系统的机制样板：四类规则由 project/tools/source_check.py 对着真实页面校验过。",
+  "enabled": true,
+  "enabledExplore": false,
+  "header": "{\"User-Agent\":\"Mozilla/5.0 (Linux; Android 16; 2201122C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36\",\"Referer\":\"https://www.biquge365.net/\"}",
+  "searchUrl": "/s.php,{\"method\":\"POST\",\"body\":\"s={{key}}&type=articlename\"}",
+  "ruleSearch": {
+    "bookList": "div.menu ul.search li:not(.fen)",
+    "name": ".name a@text",
+    "author": ".zuo a@text",
+    "bookUrl": ".name a@href"
+  },
+  "ruleBookInfo": {
+    "name": "h1@text",
+    "intro": "meta[name=description]@content",
+    "coverUrl": "meta[property='og:image']@content"
+  },
+  "ruleToc": {
+    "chapterList": "ul.newchapter a[href^='/chapter/']",
+    "chapterName": "text",
+    "chapterUrl": "href"
+  },
+  "ruleContent": {
+    "content": "#neirong #txt@html"
+  }
+}
