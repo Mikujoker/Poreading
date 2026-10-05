@@ -35,6 +35,7 @@ import io.legado.app.ui.theme.adaptiveHorizontalPadding
 import io.legado.app.ui.widget.components.card.GlassCard
 import io.legado.app.ui.widget.components.text.AppText
 import java.time.LocalDate
+import io.legado.app.ui.theme.MotionSpec
 
 @Composable
 fun ReadingTimeBarChartCard(
@@ -113,7 +114,7 @@ fun ReadingTimeBarChartCard(
                         val targetHeightFactor = time.toFloat() / roundedMaxTime
                         val heightFactor by animateFloatAsState(
                             targetValue = targetHeightFactor,
-                            animationSpec = tween(durationMillis = 320, delayMillis = index * 20),
+                            animationSpec = tween(durationMillis = MotionSpec.EnterMs, delayMillis = index * 20),
                             label = "BarHeight"
                         )
 

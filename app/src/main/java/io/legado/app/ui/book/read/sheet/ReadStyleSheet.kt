@@ -35,6 +35,7 @@ import io.legado.app.ui.widget.components.pager.rememberPagerAnimatedHeight
 import io.legado.app.ui.widget.components.pager.rememberPagerFlingPassThroughConnection
 import io.legado.app.ui.widget.components.tabRow.CardTabRow
 import kotlinx.coroutines.launch
+import io.legado.app.ui.theme.MotionSpec
 
 @Composable
 fun ReadStyleContent(
@@ -137,7 +138,7 @@ fun ReadStyleContent(
                         scope.launch {
                             pagerState.animateScrollToPage(
                                 page = index,
-                                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                                animationSpec = tween(durationMillis = MotionSpec.EnterMs, easing = MotionSpec.EaseOut)
                             )
                         }
                     }

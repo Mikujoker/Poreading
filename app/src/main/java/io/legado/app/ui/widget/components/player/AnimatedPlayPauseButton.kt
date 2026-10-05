@@ -30,6 +30,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
+import io.legado.app.ui.theme.MotionSpec
 
 /** 播放器共用的播放/暂停键，包含图标与容器形变。 */
 @Composable
@@ -43,18 +44,18 @@ fun AnimatedPlayPauseButton(
 ) {
     val transition = updateTransition(targetState = isPlaying, label = "PlayerPlayPause")
     val morphProgress by transition.animateFloat(
-        transitionSpec = { tween(durationMillis = 300, easing = FastOutSlowInEasing) },
+        transitionSpec = { tween(durationMillis = MotionSpec.PressMs, easing = MotionSpec.EaseOut) },
         label = "PlayerPlayPauseMorph",
     ) { playing -> if (playing) 1f else 0f }
     val containerColor by transition.animateColor(
-        transitionSpec = { tween(durationMillis = 300, easing = FastOutSlowInEasing) },
+        transitionSpec = { tween(durationMillis = MotionSpec.PressMs, easing = MotionSpec.EaseOut) },
         label = "PlayerPlayPauseContainer",
     ) { playing ->
         if (playing) LegadoTheme.colorScheme.primaryContainer
         else LegadoTheme.colorScheme.secondaryContainer
     }
     val contentColor by transition.animateColor(
-        transitionSpec = { tween(durationMillis = 300, easing = FastOutSlowInEasing) },
+        transitionSpec = { tween(durationMillis = MotionSpec.PressMs, easing = MotionSpec.EaseOut) },
         label = "PlayerPlayPauseContent",
     ) { playing ->
         if (playing) LegadoTheme.colorScheme.onPrimaryContainer

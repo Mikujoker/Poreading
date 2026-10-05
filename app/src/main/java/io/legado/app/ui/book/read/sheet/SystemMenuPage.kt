@@ -82,6 +82,7 @@ import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonObject
 import kotlinx.coroutines.launch
+import io.legado.app.ui.theme.MotionSpec
 
 private const val COLOR_BG = 5
 private const val COLOR_MENU_ACCENT = 6
@@ -150,7 +151,7 @@ internal fun SystemMenuPage(
                     try {
                         pagerState.animateScrollToPage(
                             page = index,
-                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                            animationSpec = tween(durationMillis = MotionSpec.EnterMs, easing = MotionSpec.EaseOut)
                         )
                     } finally {
                         clickScrollCount = (clickScrollCount - 1).coerceAtLeast(0)

@@ -76,25 +76,25 @@ class ReplaceRuleActivity : BaseComposeActivity() {
                     (slideIntoContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,
                         animationSpec = tween(
-                            durationMillis = 480,
+                            durationMillis = MotionSpec.EnterMs,
                             easing = FastOutSlowInEasing
                         ),
                         initialOffset = { fullWidth -> fullWidth }
                     ) + fadeIn(
                         animationSpec = tween(
-                            durationMillis = 360,
+                            durationMillis = MotionSpec.ExitMs,
                             easing = MotionSpec.EaseOut
                         )
                     )) togetherWith (slideOutOfContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,
                         animationSpec = tween(
-                            durationMillis = 480,
+                            durationMillis = MotionSpec.EnterMs,
                             easing = FastOutSlowInEasing
                         ),
                         targetOffset = { fullWidth -> fullWidth / 4 }
                     ) + fadeOut(
                         animationSpec = tween(
-                            durationMillis = 360,
+                            durationMillis = MotionSpec.ExitMs,
                             easing = MotionSpec.EaseOut
                         )
                     ))
@@ -103,19 +103,19 @@ class ReplaceRuleActivity : BaseComposeActivity() {
                     (slideIntoContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,
                         animationSpec = tween(
-                            durationMillis = 480,
+                            durationMillis = MotionSpec.EnterMs,
                             easing = FastOutSlowInEasing
                         ),
                         initialOffset = { fullWidth -> -fullWidth / 4 }
                     ) + fadeIn(
                         animationSpec = tween(
-                            durationMillis = 360,
+                            durationMillis = MotionSpec.ExitMs,
                             easing = MotionSpec.EaseOut
                         )
                     )) togetherWith (scaleOut(
                         targetScale = 0.8f,
                         animationSpec = tween(
-                            durationMillis = 480,
+                            durationMillis = MotionSpec.EnterMs,
                             easing = FastOutSlowInEasing
                         )
                     ) + fadeOut(
