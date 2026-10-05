@@ -30,6 +30,7 @@ import androidx.navigation3.scene.SceneStrategy
 import androidx.navigation3.scene.SceneStrategyScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import io.legado.app.ui.theme.MotionSpec
 
 internal const val NAV_SLIDE_DURATION_MILLIS = 480
 internal const val NAV_FADE_DURATION_MILLIS = 360
@@ -132,13 +133,13 @@ private data class SearchOverlayScene(
                 launch {
                     animation.opacity.animateTo(
                         1f,
-                        tween(NAV_FADE_DURATION_MILLIS, easing = LinearOutSlowInEasing)
+                        tween(NAV_FADE_DURATION_MILLIS, easing = MotionSpec.EaseOut)
                     )
                 }
                 launch {
                     animation.underlayOpacity.animateTo(
                         0f,
-                        tween(NAV_FADE_DURATION_MILLIS, easing = LinearOutSlowInEasing)
+                        tween(NAV_FADE_DURATION_MILLIS, easing = MotionSpec.EaseOut)
                     )
                 }
             }
@@ -176,7 +177,7 @@ private data class SearchOverlayScene(
                 launch {
                     animation.underlayOpacity.animateTo(
                         1f,
-                        tween(NAV_FADE_DURATION_MILLIS, easing = LinearOutSlowInEasing)
+                        tween(NAV_FADE_DURATION_MILLIS, easing = MotionSpec.EaseOut)
                     )
                 }
             }
@@ -214,7 +215,7 @@ internal class SearchOverlayAnimation(val underlayKey: Any) {
             launch {
                 underlayOpacity.animateTo(
                     0f,
-                    tween(NAV_FADE_DURATION_MILLIS, easing = LinearOutSlowInEasing)
+                    tween(NAV_FADE_DURATION_MILLIS, easing = MotionSpec.EaseOut)
                 )
             }
         }

@@ -28,6 +28,7 @@ import io.legado.app.ui.theme.LocalAppUiConfiguration
 import kotlinx.serialization.json.Json
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
+import io.legado.app.ui.theme.MotionSpec
 
 class ReplaceRuleActivity : BaseComposeActivity() {
 
@@ -82,7 +83,7 @@ class ReplaceRuleActivity : BaseComposeActivity() {
                     ) + fadeIn(
                         animationSpec = tween(
                             durationMillis = 360,
-                            easing = LinearOutSlowInEasing
+                            easing = MotionSpec.EaseOut
                         )
                     )) togetherWith (slideOutOfContainer(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,
@@ -94,7 +95,7 @@ class ReplaceRuleActivity : BaseComposeActivity() {
                     ) + fadeOut(
                         animationSpec = tween(
                             durationMillis = 360,
-                            easing = LinearOutSlowInEasing
+                            easing = MotionSpec.EaseOut
                         )
                     ))
                 },
@@ -109,7 +110,7 @@ class ReplaceRuleActivity : BaseComposeActivity() {
                     ) + fadeIn(
                         animationSpec = tween(
                             durationMillis = 360,
-                            easing = LinearOutSlowInEasing
+                            easing = MotionSpec.EaseOut
                         )
                     )) togetherWith (scaleOut(
                         targetScale = 0.8f,
@@ -130,7 +131,7 @@ class ReplaceRuleActivity : BaseComposeActivity() {
                         initialOffset = { fullWidth -> -fullWidth / 4 }
                     ) + fadeIn(
                         animationSpec = tween(
-                            easing = LinearOutSlowInEasing
+                            easing = MotionSpec.EaseOut
                         )
                     )) togetherWith (scaleOut(
                         targetScale = 0.8f,
