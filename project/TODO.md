@@ -43,6 +43,8 @@
   - 含：正文字体、字重、字距、行高、首行缩进、段距、边距、夜间配色
 
 - [ ] **B2 转场动效：spring 动画 + 共享元素 + 手势跟手**
+  - ⚠️ 已整理标准见 `DESIGN-REFERENCE.md`（Emil Kowalski 动效数值标准）
+  - 铁律：UI 动画 ≤300ms；进入用 ease-out；永不用 ease-in；永不 scale(0)；错峰 30–80ms；尊重 prefers-reduced-motion
   - 用户原话：「书架子页面切换时感觉不是特别丝滑流畅，没有系统级滑屏来的流畅舒服」
   - 目标：用 spring 物理动画（不是线性补间）、书架封面→详情→阅读页的共享元素转场、
     predictive back 跟手
