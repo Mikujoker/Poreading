@@ -48,6 +48,9 @@ adb install -r "C:/Users/mikujoker/legado-work/app-app-debug.apk"
 
 - `project/TODO.md` — **需求与待办清单（看这个）**
 - `project/PROGRESS.md` — 进度日志
+- `project/DESIGN.md` — **设计硬约束**（颜色/排版/文案/状态表达/动效）
+- `project/DESIGN-REFERENCE.md` — **外部标杆标准**（Emil 动效数值、Refactoring UI）+ 落地检查表 + 继续学习入口
+- `project/HANDOFF.md` — **下个会话从这里开始**
 - `project/DECISIONS.md` — 关键决策与理由
 - `project/ENVIRONMENT.md` — 环境搭建与新机器复现
 - `project/artifacts/` — 计划表 / 回滚清单（CSV）

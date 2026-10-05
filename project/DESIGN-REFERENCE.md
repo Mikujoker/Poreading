@@ -123,3 +123,79 @@ Emil 的标准是 UI 动画 ≤300ms。长动画不但显得拖沓，还会因�
 
 同理「质感」：质感来自**层次、留白、材质（色底/阴影/模糊）**，不是来自加更多边框和更大动效。
 **先灰度立住层次，再上颜色** —— 我们跳过了这一步，一开始就 5 个状态色 + 到处边框，所以显得杂。
+
+---
+
+## 五、来源与继续学习
+
+调研是**没做完**的（当时上下文用尽）。下次接着读的入口：
+
+### 必读（数值级、可直接照抄）
+| 来源 | 内容 | 为什么值得读 |
+|---|---|---|
+| [emilkowal.ski/ui](https://emilkowal.ski/ui) | 《Good vs Great Animations》《7 Practical Animation Tips》 | 动效领域公认标杆，Vercel / Sonner / Vaul 作者 |
+| `github.com/emilkowalski/skills` | `review-animations/STANDARDS.md`、`animate/SKILL.md` | **具体曲线、时长、错峰数值**，本文件第一节的出处 |
+| [animations.dev](https://animations.dev) | Emil 的动效课程 | 系统化，比碎片文章完整 |
+| [easing.dev](https://easing.dev) / [easings.co](https://easings.co) | 缓动曲线库 | 别手搓曲线，直接挑 |
+| [refactoringui.com](https://refactoringui.com) | 《Refactoring UI》（Tailwind 作者） | 视觉工艺的底层原则，第二节出处 |
+
+### 值得扫的（审美与取向）
+| 来源 | 看点 |
+|---|---|
+| [tympanus.net/codrops](https://tympanus.net/codrops) | 顶级个人站/作品集的**技术复盘**，讲设计决策而非炫技 |
+| rauno.me / paco.me / emilkowal.ski 等个人站 | 顶级设计工程师的站，看**留白、字阶、动效克制** |
+| Apple HIG / Material 3 指南 | 平台惯例，别和系统打架 |
+| uxpatterns.dev、Carbon / Twilio Paste 组件规范 | **数据密集列表**的成熟做法（列表视图 vs 表格 vs 卡片） |
+
+### 关键取向（多篇复盘共识，已记在第三节）
+- 趋势是「**少一点极简、多一点编辑感**」：更安静的配色、衬线排版、非对称布局
+- **真正的创造力不是套模板**：光标跟随、巨大字号、花哨特效只是当下审美；
+  **每个动画都要服务叙事，不是装饰**
+- **信息密度 ≠ 杂乱**：杂乱是「没有层级的堆砌」
+
+---
+
+## 六、落地检查表（改界面前过一遍）
+
+### 动效
+- [ ] 这个元素**每天出现 100 次以上**吗？是 → **完全不要动画**
+- [ ] 「看起来酷」是不是我唯一的理由？是 → 删掉
+- [ ] 进入/退出用 `ease-out`，屏内移动用 `ease-in-out`，悬停/变色用 `ease`
+- [ ] **有没有用 `ease-in`？**（UI 里永远不要）
+- [ ] 时长：按下反馈 100–160ms、浮层 125–200ms、下拉 150–250ms、抽屉 200–500ms，
+      **一律 ≤300ms**
+- [ ] 有没有从 `scale(0)` 开始？→ 改成 0.9~0.97 + opacity
+- [ ] 可点元素有 `:active` 的 `scale(0.97)` 吗？
+- [ ] 错峰在 30–80ms 之间吗？
+- [ ] 悬停动效包了 `@media (hover: hover) and (pointer: fine)` 吗？
+- [ ] 只动 `transform` / `opacity` 吗？有没有 `transition: all`？
+- [ ] `prefers-reduced-motion` 是**减而不断**（保留透明度、去掉位移）吗？
+- [ ] **有没有内容依赖动画才可见？**（`opacity:0` + 无 `forwards` 会让内容永远消失）
+
+### 视觉
+- [ ] 先做**灰度**能站住吗？颜色是不是在掩盖层级问题？
+- [ ] 文字颜色是否**只用 2–3 档**？
+- [ ] 边框是不是太多了？能用**背景色差 / 阴影 / 留白**代替吗？
+- [ ] 是不是所有元素一样重？**去强调才能强调**
+- [ ] 有没有在彩色背景上用灰字？
+- [ ] 能靠位置/形态表达的地方，是不是还挂着**文字标签**？
+- [ ] 字号是不是**几何级数**？还是随手定的 11.5 / 14.5？
+- [ ] 圆角、间距、阴影是否来自同一套 token？
+
+### 文案
+- [ ] 有没有**句子**？（说明性副标题、解释性文案一律删）
+- [ ] 有没有「A / B」并列短语、四字套话、自述式文案（AI 味）？
+- [ ] 每一行文字删掉后，理解会受影响吗？不会 → 删
+
+---
+
+## 七、待补调研（下次继续）
+
+1. **数据密集列表的成熟做法**：uxpatterns.dev 的 list-view 模式、Carbon 的 contained-list、
+   Twilio Paste 的 list —— 我们有两万多行的书源列表，现在只是朴素列表，值得系统看一遍
+2. **中文字体排版**：标点挤压、避头尾、悬挂标点、中英混排基线对齐
+   （B3 字体系统要做的事，见 TODO）
+3. **玻璃拟态的分寸**：Apple 2025/26 的 Liquid Glass 规范，怎么用到 Android 上不显廉价
+4. **Android 上的 spring 动效**：Compose 的 `animateFloatAsState(spring(...))` 参数怎么调，
+   与 Emil 的标准怎么对应（他现在讲的多是 Web/CSS）
+5. **无障碍**：TalkBack 下的动效与焦点顺序（我们行内有开关+编辑+菜单，焦点序要紧）
