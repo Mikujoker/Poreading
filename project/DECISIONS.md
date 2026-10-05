@@ -1,0 +1,51 @@
+# 关键决策
+
+## D1：基于 `legado-with-MD3` fork，而不是从零写
+
+**背景**：用户最初想「写一个全方位崭新的软件」。
+
+**理由**：
+- 书源引擎是重资产。书源规则是一门 DSL，含 `@css/@XPath/@json/@js`、`&&`/`||`/`##` 组合、
+  `{{}}` 模板，其中 `@js:` 能调 `java.*`（AES/Base64/时间/正则…）。这些桥接层重写 ≈ 重写核心。
+- 用户积累了 24528 条书源 + 281 本本地书 + 阅读进度。兼容性一旦掉到 80%，资产就废一半。
+- MD3 分支本身已经做了大量工作：MD3 全量重构、predictive back、共享元素动画、阅读菜单重写、
+  字体/字重/字距/排版设置、自定义 app 字体。
+
+**取舍**：换掉「UI 层 + 排版层」，保留「书源引擎 + 数据层」。用户看到的每个像素都会换。
+
+## D2：在原版之外共存安装
+
+- 该分支 `applicationId = "io.legato.kazusa"`，与官方 `io.legado.app.release` 不同 → 并存
+- 好处：原版一动不动，用户最怕的「更新把书弄没」根本不会发生
+- 代价：数据要备份迁移一次（已完成）
+
+## D3：在 WSL 里编译
+
+- C 盘只剩 21 GB（且 WSL 发行版 vhdx 已在 `D:\WSL\Ubuntu`，不占 C）
+- WSL 有 182 GB、20 核；Linux ext4 也避开 Windows 长路径坑（之前 `git clean` 就踩过）
+- 实测：冷构建 11 分钟，增量 30~60 秒
+
+## D4：本地书 bookUrl 用裸路径，而不是 SAF URI
+
+**为什么必须改**：SAF `content://` 授权**绑定 app**，无法跨 app 转移；
+而 `MANAGE_EXTERNAL_STORAGE` 只给裸路径权限。恢复备份后新 app 读不了任何本地书。
+
+**方案**：把 bookUrl 从
+`content://com.android.externalstorage.documents/tree/primary%3ADownload…`
+改成 `/storage/emulated/0/Download/…`。
+
+**为什么可行**：`LocalBook` 所有读写点都是
+`if (uri.isContentScheme()) {…} else { File(uri.path!!) }` —— 裸路径是一等公民。
+
+**实测验证**：`refreshToc` 返回完整目录、`getBookContent` 返回真实正文；
+批量 281 本零失败，进度/书名/封面全部保留，**不需要删书重导**。
+
+## D5：重复文件用「隔离」而不是「删除」
+
+移到 `/sdcard/legado-trash/`（Download 之外，避免被目录扫描捡回来）。
+确认无误后用户再删，可回收 182 MB。
+
+## D6：先出 HTML 高保真原型，再改 Compose
+
+改 Android 布局每版要编译 30~60 秒；HTML 原型在浏览器里 10 分钟能迭代一版。
+定稿后再落代码。
