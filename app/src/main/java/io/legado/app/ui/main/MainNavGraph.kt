@@ -447,7 +447,11 @@ fun MainActivity.mainEntryProvider(
                             sharedCoverKey = sharedCoverKey
                         )
                     )
-                } else if (!book.isLocal && book.isImage && showMangaUi) {
+                } else if ((!book.isLocal && book.isImage && showMangaUi) ||
+                    (book.isLocal && book.originName.endsWith(".pdf", true))
+                ) {
+                    // 本地 PDF 一律走漫画阅读器：它是「每页一张图」的顺序阅读，只有这条路上
+                    // 有 telephoto 的双指缩放 + 缩放后锁定尺寸平移
                     onNavigateToRoute(
                         MainRouteReadManga(
                             bookUrl = book.bookUrl,

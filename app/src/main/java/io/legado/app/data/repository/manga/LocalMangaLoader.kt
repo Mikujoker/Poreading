@@ -7,6 +7,8 @@ import io.legado.app.data.entities.BookChapter
 import io.legado.app.domain.model.manga.MangaChapterContent
 import io.legado.app.domain.model.manga.MangaPageContent
 import io.legado.app.exception.NoStackTraceException
+import io.legado.app.help.book.isPdf
+import io.legado.app.model.localBook.PdfFile
 import io.legado.app.utils.AlphanumComparator
 import io.legado.app.utils.ArchiveUtils
 import io.legado.app.utils.MD5Utils
@@ -18,10 +20,23 @@ internal class LocalMangaLoader(private val cacheRoot: File) : AutoCloseable {
     private val extractedRoots = linkedSetOf<File>()
     private val extractedBooks = mutableMapOf<String, File>()
 
-    fun supports(book: Book): Boolean = book.originName.endsWith(".cbz", true) ||
+    // PDF 也归这里：它是「每页一张图」的顺序阅读，和漫画同构，交给漫画阅读器就能白拿
+    // 双指缩放 + 缩放后按锁定尺寸平移（telephoto）。文本阅读器那条路做不到缩放。
+    fun supports(book: Book): Boolean = book.isPdf || book.originName.endsWith(".cbz", true) ||
             book.originName.endsWith(".zip", true) || localDirectory(book) != null
 
-    fun chapters(book: Book): List<BookChapter> =
+    fun chapters(book: Book): List<BookChapter> = if (book.isPdf) {
+        val pageCount = PdfFile.getPageCount(book)
+        if (pageCount <= 0) throw NoStackTraceException("PDF 无法读取")
+        (0 until pageCount).map { index ->
+            BookChapter(
+                url = "$PDF_PAGE_SCHEME$index",
+                title = "第${index + 1}页",
+                bookUrl = book.bookUrl,
+                index = index,
+            )
+        }
+    } else {
         imageGroups(book).keys.mapIndexed { index, title ->
             BookChapter(
                 url = "local-manga://chapter/$index",
@@ -30,8 +45,21 @@ internal class LocalMangaLoader(private val cacheRoot: File) : AutoCloseable {
                 index = index,
             )
         }
+    }
 
     fun load(book: Book, chapter: BookChapter): MangaChapterContent {
+        if (book.isPdf) {
+            val file = pdfPageFile(book, chapter.index)
+                ?: throw NoStackTraceException("PDF 第${chapter.index + 1} 页渲染失败")
+            val url = file.toURI().toString()
+            return MangaChapterContent(
+                chapter.index,
+                chapter.title,
+                chapter.url,
+                listOf(MangaPageContent(url, 0, 1)),
+                false,
+            )
+        }
         val entry = imageGroups(book).entries.elementAtOrNull(chapter.index)
             ?: throw NoStackTraceException("Local comic chapter is missing")
         val urls = entry.value.map(ImageEntry::url)
@@ -42,6 +70,18 @@ internal class LocalMangaLoader(private val cacheRoot: File) : AutoCloseable {
             urls.mapIndexed { index, url -> MangaPageContent(url, index, urls.size) },
             false,
         )
+    }
+
+    /**
+     * PDF 页落到缓存目录，之后当普通图片地址交给 Coil。
+     * 目录登记进 [extractedRoots]，[close] 时连同解压缓存一起清掉。
+     */
+    private fun pdfPageFile(book: Book, index: Int): File? {
+        // 路径带版本号：磁盘缓存与 Coil 都是按文件名作键的，改了渲染方式（例如补白底）后
+        // 必须换路径，否则永远读到旧图——这个坑真机上踩过一次
+        val dir = File(cacheRoot, "pdf-v2/${MD5Utils.md5Encode16(book.bookUrl)}").apply { mkdirs() }
+        extractedRoots += dir
+        return PdfFile.renderPageFile(book, index, PDF_PAGE_WIDTH, File(dir, "$index.jpg"))
     }
 
     private fun imageGroups(book: Book): Map<String, List<ImageEntry>> {
@@ -122,6 +162,12 @@ internal class LocalMangaLoader(private val cacheRoot: File) : AutoCloseable {
 
     private companion object {
         val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "gif", "avif", "bmp")
+
+        /** PDF 页的地址前缀（只在本类内部当标识用，真正加载的是落盘后的 file:// 地址） */
+        const val PDF_PAGE_SCHEME = "pdf-page://"
+
+        /** 渲染宽度：给足像素，双指放大时才不糊 */
+        const val PDF_PAGE_WIDTH = 1600
     }
 
     private data class ImageEntry(val path: String, val url: String)

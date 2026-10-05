@@ -1369,7 +1369,10 @@ class MangaReaderViewModel(
             doublePageCoverSingle = settings.doublePageCoverSingle,
             doublePageInvert = settings.doublePageInvert,
             doublePageShift = settings.doublePageShift,
-        disableScale = settings.disableMangaScale,
+        // PDF 一律允许双指缩放：这条路上不缩放就只能看原始尺寸（PDF 页往往比屏幕大）。
+        // 其他漫画书继续尊重用户的「双指缩放」设置（该设置默认是关的）。
+        disableScale = settings.disableMangaScale &&
+            readerSession.state.value.book?.bookUrl?.endsWith(".pdf", true) != true,
         disableScrollAnimation = settings.disableMangaScrollAnimation,
         disableCrossFade = settings.disableMangaCrossFade,
         disableClickScroll = settings.disableClickScroll,
