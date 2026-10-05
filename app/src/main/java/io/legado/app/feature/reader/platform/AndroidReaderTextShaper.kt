@@ -48,13 +48,19 @@ object ReaderAndroidPaintFactory {
     fun loadTypeface(path: String, weight: Int, italic: Boolean, family: String = "sans-serif"): Typeface {
         val key = "$path|$weight|$italic|$family"
         typefaceCache[key]?.let { return it }
+        // 字体选择器存的是 file:// URI，而这里以前只认 content:// 和裸路径：
+        // File("file:///…").isFile 恒为 false → 静默回退系统字体，选了也没反应。
+        val filePath = path.takeIf(String::isNotBlank)?.let { raw ->
+            if (raw.startsWith("file://", ignoreCase = true)) raw.toUri().path else raw
+        }
         val base = runCatching {
             when {
                 path.startsWith("content://", ignoreCase = true) ->
                     appCtx.contentResolver.openFileDescriptor(path.toUri(), "r")?.use {
                         Typeface.Builder(it.fileDescriptor).build()
                     }
-                path.isNotBlank() && File(path).isFile -> Typeface.Builder(File(path)).build()
+                !filePath.isNullOrBlank() && File(filePath).isFile ->
+                    Typeface.Builder(File(filePath)).build()
                 else -> null
             }
         }.getOrNull() ?: Typeface.create(family, Typeface.NORMAL)

@@ -100,3 +100,45 @@ A1「书源管理」按用户最终口径重写完成并**装机验证**：三�
   入库方式未定：导入 or Web API `/saveBookSources`）
 - 列表分页（唯一能让这页真正秒开的路）
 - B1/B3 阅读界面配色与字体
+
+---
+
+# 阅读页（B1/B3）现状与坑
+
+## 字体
+
+- 外挂字体目录 `/sdcard/legado/fonts`（B3 的约定）。`help/FontLoader.kt` 现在优先用它，
+  **不需要先在设置里授权 SAF 目录**；授权过的目录仍然优先
+- ⚠️ **修过的 bug**：`feature/reader/platform/AndroidReaderTextShaper.loadTypeface` 以前只认
+  `content://` 和裸路径，而字体选择器存的是 **`file://` URI** → `File("file:///…").isFile` 恒为 false
+  → 静默回退系统字体（用户「选了没反应」就是这个）。现已处理 `file://`
+- 已放好的字体：`/sdcard/legado/fonts/LXGWWenKaiScreen.ttf`（霞鹜文楷 Screen，v1.522，25.6 MB）
+- 正文字体写进了「米纸」系预设的 `textFont`，换预设不会掉
+
+## 排版配置（改之前先看这段）
+
+- 生效的那份：`ReadBookConfig.config = if (shareLayout) shareConfig else durConfig`
+  —— **共用布局开着时用的是 `files/shareReadConfig.json`**，改预设文件没用
+- 预设列表：优先读 `files/readConfig.json`，没有才用 `assets/defaultData/readConfig.json`
+- ⚠️ **app 会写回这个文件**：任何样式改动都会把**内存里的列表**落盘 → 我从外面 push 进去的改动
+  会被下一次样式改动覆盖。**别再走 push 这条路**
+- 要新增内置预设 / 改配色：**改 `assets/defaultData/readConfig.json` + 重新编译**；
+  要让设备生效，先备份再删掉 `files/readConfig.json`（app 就回落到 assets 列表），
+  或让用户在预设列表里点一下
+- 背景语义：`bgType` 0=纯色 / 1=`assets/bg/<bgStr>` / 2=`externalFiles/bg/<bgStr>` 或绝对路径
+
+## 我们的「米纸」系预设（index 6-9）
+
+| # | 名字 | 白天背景 | 夜间背景 |
+|---|---|---|---|
+| 6 | 米纸·纸页 | `kazusa-paper-page.jpg` | 暖褐 |
+| 7 | 米纸·纤维 | `kazusa-paper-fiber.jpg` | 暖褐 |
+| 8 | 米纸·棉絮 | `kazusa-paper-cotton.jpg` | 暖褐 |
+| 9 | 米纸·深蓝 | `kazusa-paper-fiber.jpg` | `kazusa-night-blue.jpg` |
+
+- 纸纹由 `scripts/gen-paper-texture.py` 生成（改参数重跑即可，输出直接写进 `assets/bg/`）
+- 配方 = 受光渐变 + 帘纹 + 纤维 + 棉絮云纹 + 颗粒，**1264x2780**（用户手机真实分辨率，
+  颗粒必须 1:1，放大就糊成一片灰）
+- ❌ 别再照 prototype 的 CSS 径向色斑做：那是给浏览器大屏的，到了手机上就是两坨黄渍（用户原话「很丑」）
+- 排版：行距 12 / 段距 2 / 字距 0（用户要求「紧回去」）；字色 `#2B241C`；夜间字色 `#EFE6D9`；
+  夜间背景暖褐 `#16120E` / 深蓝 `#0B1420`
