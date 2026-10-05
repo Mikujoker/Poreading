@@ -67,15 +67,16 @@ A1「书源管理」按用户最终口径重写完成并**装机验证**：三�
 - 迁移前：`/mnt/c/Users/mikujoker/legado-work/predb/`（legado.db + wal + shm，user_version 107）
 - 迁移后：`/mnt/c/Users/mikujoker/legado-work/postdb/`（user_version 108）
 
-## 等用户拍板
+## 已拍板（2026-10-05）
 
-1. **默认落在哪个标签**：现在默认「常用」，而常用初始是空的 —— 用户可能觉得「打开是空的像坏了」。
-   备选：默认「全部」。已给「常用」加了「无常用」空态，但没有跳转按钮。
-2. 校验会写库（`respondTime` + 失败源加「网站失效/搜索失效」等分组 + 错误注释），这是 app 原有
+- **默认标签 = 常用**（用户确认保持现状）
+- 校验会写库（`respondTime` + 失败源加「网站失效/搜索失效」等分组 + 错误注释），这是 app 原有
    「校验书源」的行为，本轮**没有**改成只读。要纯只读得给 `BookSourceCheckRepository` 加 `persist` 开关。
 
 ## 下一步候选
 
+- **批量标「常用」**（用户新提）：单条点星标几十上百条太累，想要批量收藏/移除。
+  「按分类查看」已经能用（顶栏「分组」图标）。待定批量口子做多宽
 - A2 应用书源体检方案（等用户拍板）
 - 去重后的 12680 条入库（99 MB JSON 在 `/mnt/c/Users/mikujoker/legado-work/bookSource.deduped.json`，
   入库方式未定：导入 or Web API `/saveBookSources`）
