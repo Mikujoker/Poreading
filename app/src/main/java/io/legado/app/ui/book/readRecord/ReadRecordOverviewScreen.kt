@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
+import io.legado.app.ui.theme.MotionSpec
 import io.legado.app.ui.book.readRecord.component.ReadingTimeBarChartCard
 import io.legado.app.ui.book.readRecord.component.StatItem
 import io.legado.app.ui.book.readRecord.component.StatsGridCard
@@ -244,9 +245,21 @@ fun DateNavigator(
             targetState = referenceDate,
             transitionSpec = {
                 if (targetState.isAfter(initialState)) {
-                    (slideInHorizontally { it / 2 } + fadeIn()).togetherWith(slideOutHorizontally { -it / 2 } + fadeOut())
+                    (
+                        slideInHorizontally(MotionSpec.enter()) { it / 2 } +
+                            fadeIn(MotionSpec.enter())
+                        ).togetherWith(
+                        slideOutHorizontally(MotionSpec.exit()) { -it / 2 } +
+                            fadeOut(MotionSpec.exit())
+                    )
                 } else {
-                    (slideInHorizontally { -it / 2 } + fadeIn()).togetherWith(slideOutHorizontally { it / 2 } + fadeOut())
+                    (
+                        slideInHorizontally(MotionSpec.enter()) { -it / 2 } +
+                            fadeIn(MotionSpec.enter())
+                        ).togetherWith(
+                        slideOutHorizontally(MotionSpec.exit()) { it / 2 } +
+                            fadeOut(MotionSpec.exit())
+                    )
                 }.using(SizeTransform(clip = false))
             },
             label = "DateNavigator"

@@ -83,6 +83,7 @@ import io.legado.app.ui.book.read.sheet.TypographySection
 import io.legado.app.ui.book.readaloud.ReadAloudTimerConfig
 import io.legado.app.ui.book.readaloud.ReadAloudTimerSheet
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.MotionSpec
 import io.legado.app.ui.widget.components.button.series.SmallTonalButton
 import io.legado.app.ui.widget.components.reader.ReaderMenuAnimatedBottom
 import io.legado.app.ui.widget.components.reader.ReaderMenuAnimatedTop
@@ -197,11 +198,13 @@ fun ReadBookMenuBar(
         AnimatedVisibility(
             visible = brightnessMode == "2" && state.menuVisible && currentRoute == ReadBookMenuRoute.Main,
             enter = slideInHorizontally(
+                animationSpec = MotionSpec.enter(),
                 initialOffsetX = { if (brightnessIsLeft) -it else it }
-            ) + fadeIn(),
+            ) + fadeIn(animationSpec = MotionSpec.enter()),
             exit = slideOutHorizontally(
+                animationSpec = MotionSpec.exit(),
                 targetOffsetX = { if (brightnessIsLeft) -it else it }
-            ) + fadeOut(),
+            ) + fadeOut(animationSpec = MotionSpec.exit()),
             modifier = Modifier.align(
                 if (brightnessIsLeft) Alignment.CenterStart else Alignment.CenterEnd
             ),
