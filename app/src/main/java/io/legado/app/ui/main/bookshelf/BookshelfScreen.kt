@@ -17,6 +17,7 @@ import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.animation.core.rememberTransition
@@ -121,6 +122,7 @@ import io.legado.app.ui.theme.ThemeResolver
 import io.legado.app.ui.theme.adaptiveContentPaddingBookshelf
 import io.legado.app.ui.theme.adaptiveHorizontalPadding
 import io.legado.app.ui.theme.adaptiveHorizontalPaddingTab
+import io.legado.app.ui.theme.rememberMotionReduced
 import io.legado.app.ui.widget.components.AppPullToRefresh
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.AppTextField
@@ -156,8 +158,10 @@ import io.legado.app.ui.widget.components.topbar.TopBarNavigationButton
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import sh.calvin.reorderable.ReorderableItem
@@ -403,6 +407,42 @@ fun BookshelfScreen(
             initialPage = uiState.selectedGroupIndex.coerceAtLeast(0),
             pageCount = { uiState.groups.size }
         )
+    }
+    // 远处切分组（|Δ|>1）不再滑过中间页：中间每一页都要整屏合成一次，那是切分组卡顿的主因。
+    // 直接落位 + 一次 ease-out 淡入，对齐 Material 的 fade-through 入场半段与 iOS 标签页的瞬时切换。
+    // 相邻切换仍走滑动动画（那一页已被 beyondViewportPageCount 预组合，本来就顺）。
+    val pageAlpha = remember { Animatable(1f) }
+    val motionReduced = rememberMotionReduced()
+    val jumpToGroupPage: (Int) -> Unit = { index ->
+        scope.launch {
+            if (index == pagerState.currentPage) return@launch
+            if (abs(index - pagerState.currentPage) <= 1) {
+                pagerState.animateScrollToPage(index)
+            } else {
+                // 先落到 0 再换页，避免"新页第一帧已经画出来"的闪现；减弱动效时纯瞬时切换
+                if (!motionReduced) pageAlpha.snapTo(0f)
+                pagerState.scrollToPage(index)
+                if (!motionReduced) pageAlpha.animateTo(1f, MotionSpec.enter())
+            }
+        }
+    }
+    // 启动浮现：时钟由「书架内容真的被布局出来」触发（见 BookshelfPage 里那条 snapshotFlow），
+    // 而不是由「数据到了」触发——debug 包冷启动要 3 秒多，按数据到达起跑时动画早跑完了，
+    // 书一出现就是全亮，看着还是「啪一下跳出来」。只跑一次：切分组/刷新/滚动都不再浮现。
+    val appearProgress = remember { Animatable(if (motionReduced) 1f else 0f) }
+    var appearStarted by remember { mutableStateOf(false) }
+    val startAppear: () -> Unit = {
+        if (!appearStarted) {
+            appearStarted = true
+            if (!motionReduced) {
+                scope.launch {
+                    appearProgress.animateTo(
+                        1f,
+                        tween(SHELF_APPEAR_TOTAL_MS, easing = MotionSpec.EaseOut)
+                    )
+                }
+            }
+        }
     }
     val folderGridState = rememberLazyGridState()
     val standaloneSearchGridState = rememberLazyGridState()
@@ -785,7 +825,7 @@ fun BookshelfScreen(
                                 tabTitles = tabTitles,
                                 selectedTabIndex = selectedTabIndex,
                                 onTabSelected = { index ->
-                                    scope.launch { pagerState.animateScrollToPage(index) }
+                                    jumpToGroupPage(index)
                                 },
                                 modifier = Modifier.weight(1f)
                             )
@@ -817,11 +857,7 @@ fun BookshelfScreen(
                                                     if (uiState.isSearch) {
                                                         onIntent(BookshelfIntent.ChangeGroup(group.groupId))
                                                     }
-                                                    scope.launch {
-                                                        pagerState.animateScrollToPage(
-                                                            index
-                                                        )
-                                                    }
+                                                    jumpToGroupPage(index)
                                                     dismiss()
                                                 },
                                                 trailingIcon = {
@@ -1091,12 +1127,17 @@ fun BookshelfScreen(
                             state = pagerState,
                             modifier = Modifier
                                 .fillMaxSize()
+                                // 远处切分组的落位淡入：在绘制阶段读 alpha，不触发重组
+                                .graphicsLayer { alpha = pageAlpha.value }
                                 .then(
                                     with(sharedTransitionScope) {
                                         if (this != null) Modifier.skipToLookaheadSize() else Modifier
                                     }
                                 ),
-                            beyondViewportPageCount = 0,
+                            // 邻页预组合：切到相邻分组时那一页已经合成过，不会把「首次合成」
+                            // 那一帧（实测 30ms，Slow UI thread 的主要来源）压在切换动作上。
+                            // 代价是多合成 1 页；不能再往上加，否则一次要合成整排分组。
+                            beyondViewportPageCount = 1,
                             key = { if (it < uiState.groups.size) uiState.groups[it].groupId else it }
                         ) { pageIndex ->
                             val group = uiState.groups.getOrNull(pageIndex)
@@ -1127,6 +1168,8 @@ fun BookshelfScreen(
                                             gridState = groupGridStates.getValue(group.groupId),
                                             paddingValues = paddingValues,
                                             books = books,
+                                            appearProgress = { appearProgress.value },
+                                            onContentShown = startAppear,
                                             uiState = uiState,
                                             selectedBookUrls = selectedBookUrls,
                                             canReorderBooks = canReorderBooks,
@@ -1259,11 +1302,7 @@ fun BookshelfScreen(
                                         val targetIndex =
                                             uiState.groups.indexOfFirst { it.groupId == group.groupId }
                                         if (targetIndex >= 0) {
-                                            scope.launch {
-                                                if (pagerState.currentPage != targetIndex) {
-                                                    pagerState.animateScrollToPage(targetIndex)
-                                                }
-                                            }
+                                            jumpToGroupPage(targetIndex)
                                         }
                                         if (uiState.isSearch || uiState.selectedGroupId != group.groupId) {
                                             onIntent(BookshelfIntent.ChangeGroup(group.groupId))
@@ -1617,6 +1656,30 @@ private fun PrivateGroupLockedPage(
     )
 }
 
+/** 启动浮现的总时长（含错峰窗口），压在 DESIGN.md 的 300ms 上限附近。 */
+internal const val SHELF_APPEAR_TOTAL_MS = 320
+
+/** 单条浮现时长。 */
+private const val SHELF_APPEAR_ITEM_MS = 160
+
+/** 错峰步长与最大档数：第 6 条之后一起收尾，总时长不随书变多而变长。 */
+private const val SHELF_APPEAR_STEP_MS = 32
+private const val SHELF_APPEAR_MAX_STEP = 5
+
+/**
+ * 启动浮现时第 [index] 条书的透明度。
+ *
+ * 全部条目共用一条动画时钟（调用点在绘制阶段读它），所以这里的错峰不需要给每条书建状态，
+ * 也就不会因为动画让整页重组——而书架首屏合成本来就已经是最重的那一帧。
+ * 播放结束后 [progress] 恒为 1：之后滚进视野的条目直接取到 1，滚动时不会闪。
+ */
+internal fun shelfAppearAlpha(progress: Float, index: Int): Float {
+    val startMs = index.coerceAtMost(SHELF_APPEAR_MAX_STEP) * SHELF_APPEAR_STEP_MS
+    val start = startMs.toFloat() / SHELF_APPEAR_TOTAL_MS
+    val span = SHELF_APPEAR_ITEM_MS.toFloat() / SHELF_APPEAR_TOTAL_MS
+    return ((progress - start) / span).coerceIn(0f, 1f)
+}
+
 @Composable
 fun BookshelfPage(
     gridState: LazyGridState,
@@ -1625,6 +1688,13 @@ fun BookshelfPage(
     uiState: BookshelfUiState,
     selectedBookUrls: ImmutableSet<String>,
     canReorderBooks: Boolean,
+    /**
+     * 启动浮现进度。传 lambda 而不是数值：调用点在 `graphicsLayer` 里读它，读发生在绘制阶段，
+     * 因此这条动画不会让任何条目重组。
+     */
+    appearProgress: () -> Float = { 1f },
+    /** 内容第一次真的布局出来时回调一次：启动浮现的时钟由它起跑。 */
+    onContentShown: () -> Unit = {},
     onToggleBookSelection: (BookUiItem) -> Unit,
     draggingBooks: ImmutableList<BookUiItem>?,
     pendingSavedBooks: ImmutableList<BookUiItem>?,
@@ -1707,6 +1777,14 @@ fun BookshelfPage(
             onMoveBook(from.index, to.index, displayBooks)
             hapticFeedback.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
         }
+    }
+    // 内容第一次被布局出来时回调一次。用 LazyGrid 自己的 layoutInfo 当信号，而不是「数据到了」：
+    // 冷启动时数据早就到了，可书要过好几个重帧才真的画上屏；按数据起跑的话动画全跑在空屏上，
+    // 等书出现时已经不透明度 1，看着就是「啪一下跳出来」。
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.layoutInfo.totalItemsCount }
+            .first { it > 0 }
+        onContentShown()
     }
     LaunchedEffect(reorderableState.isAnyItemDragging) {
         if (!reorderableState.isAnyItemDragging) {
@@ -1799,7 +1877,8 @@ fun BookshelfPage(
                                 }
                             )
                             .graphicsLayer {
-                                alpha = if (isDragging) 0.5f else 1f
+                                alpha = (if (isDragging) 0.5f else 1f) *
+                                    shelfAppearAlpha(appearProgress(), index)
                             },
                         layoutMode = bookshelfLayoutMode,
                         isSelected = isSelected,
