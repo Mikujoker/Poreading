@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>书源管理 · 原型</title>
+<style>
+:root{
+  --r-lg:22px; --r-md:14px; --r-sm:9px;
+  --sp:16px;
+  --accent:#3fd0c9; --accent-2:#7c9cff; --warn:#f5b544; --bad:#ff6b6b; --mute:#8ea0b5;
+  --blur:saturate(180%) blur(22px);
+}
+html[data-theme="dark"]{
+  --bg:#0b1118; --bg2:#131c26; --bg3:#1b2733;
+  --txt:#eaf2f8; --txt2:#a9bccd;
+  --panel:rgba(255,255,255,.055); --panel2:rgba(255,255,255,.085);
+  --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.16);
+  --shadow:0 8px 32px rgba(0,0,0,.45);
+}
+html[data-theme="light"]{
+  --bg:#f2f6f9; --bg2:#e9eef4; --bg3:#dde5ed;
+  --txt:#101d2a; --txt2:#4d6070;
+  --panel:rgba(255,255,255,.62); --panel2:rgba(255,255,255,.78);
+  --line:rgba(16,29,42,.09); --line2:rgba(16,29,42,.16);
+  --shadow:0 8px 30px rgba(20,40,60,.13);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{
+  margin:0;padding:0;font-family:-apple-system,"HarmonyOS Sans SC","MiSans","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  background:var(--bg);color:var(--txt);font-size:15px;line-height:1.5;
+  transition:background .35s,color .35s;
+}
+body::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(70% 55% at 12% 0%, rgba(63,208,201,.20), transparent 60%),
+    radial-gradient(60% 50% at 88% 8%, rgba(124,156,255,.18), transparent 62%),
+    radial-gradient(50% 40% at 50% 100%, rgba(245,181,68,.08), transparent 60%);
+}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 20px 130px}
+
+/* ── header ── */
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px}
+h1{margin:0;font-size:34px;font-weight:650;letter-spacing:-.5px}
+.sub{color:var(--txt2);font-size:13.5px;margin-top:5px}
+.ghost{
+  border:1px solid var(--line2);background:var(--panel);backdrop-filter:var(--blur);
+  color:var(--txt);border-radius:999px;padding:9px 16px;font-size:13.5px;cursor:pointer;
+  transition:transform .18s,background .18s;font-family:inherit
+}
+.ghost:hover{background:var(--panel2);transform:translateY(-1px)}
+
+/* ── stat cards ── */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:12px;margin-bottom:18px}
+.stat{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:15px 17px;backdrop-filter:var(--blur);box-shadow:var(--shadow);
+  position:relative;overflow:hidden
+}
+.stat::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--c,var(--accent));opacity:.75}
+.stat .k{font-size:12px;color:var(--txt2);letter-spacing:.3px}
+.stat .v{font-size:26px;font-weight:640;margin-top:3px;font-variant-numeric:tabular-nums}
+.stat .d{font-size:11.5px;color:var(--txt2);margin-top:2px}
+
+/* ── toolbar ── */
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.search{
+  flex:1 1 260px;display:flex;align-items:center;gap:9px;
+  background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 16px;
+  backdrop-filter:var(--blur);box-shadow:var(--shadow)
+}
+.search input{flex:1;background:none;border:0;outline:0;color:var(--txt);font-size:14.5px;font-family:inherit}
+.search input::placeholder{color:var(--txt2)}
+select{
+  background:var(--panel);border:1px solid var(--line);color:var(--txt);border-radius:999px;
+  padding:9px 14px;font-size:13.5px;outline:0;backdrop-filter:var(--blur);font-family:inherit;cursor:pointer
+}
+/* tabs */
+.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+.tab{
+  border:1px solid var(--line);background:var(--panel);backdrop-filter:var(--blur);
+  color:var(--txt2);border-radius:999px;padding:8px 15px;font-size:13.5px;cursor:pointer;
+  display:flex;align-items:center;gap:7px;transition:all .2s;font-family:inherit
+}
+.tab b{font-weight:620;color:var(--txt)}
+.tab:hover{border-color:var(--line2)}
+.tab[aria-selected="true"]{
+  background:linear-gradient(135deg,rgba(63,208,201,.24),rgba(124,156,255,.20));
+  border-color:rgba(63,208,201,.5);color:var(--txt)
+}
+.tab .dot{width:7px;height:7px;border-radius:50%;background:var(--c)}
+
+/* ── list ── */
+.list{display:flex;flex-direction:column;gap:8px}
+.row{
+  display:flex;gap:13px;align-items:center;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:12px 15px;backdrop-filter:var(--blur);cursor:pointer;
+  transition:transform .16s,border-color .16s,background .16s
+}
+.row:hover{transform:translateX(3px);border-color:var(--line2);background:var(--panel2)}
+.row.sel{border-color:rgba(63,208,201,.55);background:linear-gradient(90deg,rgba(63,208,201,.14),transparent 55%)}
+.cb{
+  width:19px;height:19px;border-radius:6px;border:1.6px solid var(--line2);flex:0 0 auto;
+  display:grid;place-items:center;transition:all .16s;background:transparent
+}
+.row.sel .cb{background:var(--accent);border-color:var(--accent)}
+.row.sel .cb::after{content:"";width:5px;height:9px;border:solid #06222a;border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.main{flex:1;min-width:0}
+.nm{font-weight:560;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:4px;font-size:11.5px;color:var(--txt2)}
+.dom{background:rgba(124,156,255,.14);color:#a9beff;border-radius:6px;padding:1px 7px;font-size:11px}
+html[data-theme="light"] .dom{color:#3a56b8;background:rgba(124,156,255,.18)}
+.grp{opacity:.95}
+.rt{display:flex;align-items:center;gap:5px}
+.rt i{display:block;width:34px;height:4px;border-radius:3px;background:var(--line2);position:relative;overflow:hidden}
+.rt i::after{content:"";position:absolute;inset:0;width:var(--w);background:var(--c);
+  border-right-radius:3px}
+.chip{
+  flex:0 0 auto;border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:560;
+  border:1px solid var(--c);color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
+  white-space:nowrap
+}
+.hint{text-align:center;color:var(--txt2);padding:26px;font-size:13.5px}
+
+/* ── batch bar ── */
+.batch{
+  position:fixed;left:50%;bottom:22px;transform:translate(-50%,150%);
+  display:flex;gap:9px;align-items:center;padding:11px 14px;border-radius:999px;
+  background:var(--panel2);border:1px solid var(--line2);backdrop-filter:var(--blur);
+  box-shadow:0 14px 46px rgba(0,0,0,.42);transition:transform .3s cubic-bezier(.2,.9,.25,1.05);z-index:20
+}
+.batch.on{transform:translate(-50%,0)}
+.batch .n{font-size:13.5px;color:var(--txt2);padding:0 6px;white-space:nowrap}
+.batch button{
+  border:0;border-radius:999px;padding:9px 15px;font-size:13.5px;cursor:pointer;
+  font-family:inherit;font-weight:560;color:#06222a;background:var(--accent);transition:transform .16s,filter .16s
+}
+.batch button:hover{transform:translateY(-1px);filter:brightness(1.06)}
+.batch button.w{background:var(--warn)} .batch button.b{background:var(--bad);color:#fff}
+.batch button.g{background:var(--panel);color:var(--txt);border:1px solid var(--line2)}
+
+/* ── drawer ── */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .28s;z-index:30;backdrop-filter:blur(3px)}
+.scrim.on{opacity:1;pointer-events:auto}
+.drawer{
+  position:fixed;right:0;top:0;bottom:0;width:min(430px,92vw);z-index:31;
+  background:var(--bg2);border-left:1px solid var(--line2);padding:26px 22px;
+  transform:translateX(102%);transition:transform .34s cubic-bezier(.2,.9,.25,1);overflow:auto
+}
+.drawer.on{transform:none}
+.drawer h2{margin:0 0 4px;font-size:20px;font-weight:620}
+.drawer .u{font-size:11.5px;color:var(--txt2);word-break:break-all;margin-bottom:16px}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:9px 12px;font-size:13px;margin-bottom:20px}
+.kv .k{color:var(--txt2)}
+.drawer .acts{display:flex;flex-direction:column;gap:9px}
+.drawer .acts button{
+  border:1px solid var(--line2);background:var(--panel);color:var(--txt);border-radius:var(--r-md);
+  padding:12px 15px;font-size:14px;text-align:left;cursor:pointer;font-family:inherit;transition:background .16s
+}
+.drawer .acts button:hover{background:var(--panel2)}
+.drawer .acts button.ai{border-color:rgba(124,156,255,.55);background:linear-gradient(135deg,rgba(124,156,255,.18),rgba(63,208,201,.12))}
+.note{margin-top:22px;font-size:11.5px;color:var(--txt2);line-height:1.65}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>书源管理</h1>
+      <div class="sub">原型 · 用你真实的 <b id="tot">24528</b> 条书源数据驱动</div>
+    </div>
+    <button class="ghost" id="theme">切换明暗</button>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="bar">
+    <label class="search">
+      <span style="opacity:.5">⌕</span>
+      <input id="q" placeholder="搜索书名 / 域名 / 分组…">
+    </label>
+    <select id="grp"><option value="">全部分组</option></select>
+    <select id="sort">
+      <option value="def">在用优先（推荐）</option>
+      <option value="rt">按响应时间</option>
+      <option value="name">按名称</option>
+      <option value="rtime">按最长响应（慢的先看）</option>
+    </select>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+  <div class="list" id="list"></div>
+  <div class="hint" id="more" style="display:none">向下滚动加载更多…</div>
+</div>
+
+<div class="batch" id="batch">
+  <span class="n" id="bn">已选 0</span>
+  <button class="w" data-act="freeze">冻结</button>
+  <button data-act="enable">启用</button>
+  <button class="g" data-act="ai">AI 修复</button>
+  <button class="b" data-act="del">删除</button>
+  <button class="g" data-act="clear">取消</button>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer"></aside>
+
+<script src="sources-data.js"></script>
+<script>
+const S = window.SOURCES || [];
+// 列: 0名称 1域名 2分组 3响应ms 4启用 5建议 6原因 7收藏
+const STATUS = [
+  {k:'all',    n:'全部',    c:'var(--accent)'},
+  {k:'active', n:'在用',    c:'#3fd0c9'},
+  {k:'idle',   n:'待观察',  c:'#8ea0b5'},
+  {k:'frozen', n:'冷冻',    c:'#7c9cff'},
+  {k:'needfix',n:'待修',    c:'#f5b544'},
+  {k:'broken', n:'坏源',    c:'#ff6b6b'},
+];
+function status(r){
+  if(r[5]==='保留') return 'active';
+  if(r[5]==='冻结'){
+    if(r[6]==='坏源(URL无host)') return 'broken';
+    if(r[6]==='规则不全'||r[6]==='从未成功过') return 'needfix';
+    return 'frozen';
+  }
+  return 'idle';
+}
+const CNT = {}; STATUS.forEach(s=>CNT[s.k]=0);
+S.forEach(r=>CNT[status(r)]++); CNT.all = S.length;
+
+let tab='all', sel=new Set(), page=1, PER=90;
+const $=id=>document.getElementById(id);
+
+/* stats */
+$('stats').innerHTML = [
+  ['书源总数', CNT.all, '占用 105 MB', 'var(--accent)'],
+  ['在用',     CNT.active, '体检通过且在启用', '#3fd0c9'],
+  ['待观察',   CNT.idle,   '已禁用，未判定要冻结', '#8ea0b5'],
+  ['冷冻',     CNT.frozen, '响应慢 / 同站同名重复', '#7c9cff'],
+  ['待修',     CNT.needfix,'规则不全 / 从未成功', '#f5b544'],
+  ['坏源',     CNT.broken, 'URL 无 host', '#ff6b6b'],
+].map(([k,v,d,c])=>`<div class="stat" style="--c:${c}"><div class="k">${k}</div><div class="v">${v.toLocaleString()}</div><div class="d">${d}</div></div>`).join('');
+
+/* tabs */
+$('tabs').innerHTML = STATUS.map(s=>
+  `<button class="tab" role="tab" data-k="${s.k}" aria-selected="${s.k===tab}" style="--c:${s.c}">
+     <span class="dot"></span>${s.n} <b>${(CNT[s.k]||0).toLocaleString()}</b></button>`).join('');
+
+/* groups */
+const groups=[...new Set(S.map(r=>r[2]).filter(Boolean))];
+groups.sort((a,b)=>a.localeCompare(b,'zh')).slice(0,300).forEach(g=>{
+  const o=document.createElement('option'); o.value=g; o.textContent=g; $('grp').appendChild(o);
+});
+
+function apply(){
+  const q=$('q').value.trim().toLowerCase(), g=$('grp').value, sort=$('sort').value;
+  let out = S.filter(r=>{
+    if(tab!=='all' && status(r)!==tab) return false;
+    if(g && r[2]!==g) return false;
+    if(q){
+      const hay=(r[0]+' '+r[1]+' '+r[2]).toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  if(sort==='def') out.sort((a,b)=>{
+    const ra=a[3]<=0?1e9:a[3], rb=b[3]<=0?1e9:b[3];
+    return (b[4]-a[4]) || (ra-rb);
+  });
+  else if(sort==='rt') out.sort((a,b)=>{
+    const ra=a[3]<=0?1e9:a[3], rb=b[3]<=0?1e9:b[3];
+    return ra-rb;
+  });
+  else if(sort==='rtime') out.sort((a,b)=>b[3]-a[3]);
+  else out.sort((a,b)=>a[0].localeCompare(b[0],'zh'));
+  return out;
+}
+let CUR=[];
+function render(reset){
+  CUR=apply();
+  if(reset) page=1;
+  const show=CUR.slice(0, page*PER);
+  const color={'active':'#3fd0c9','idle':'#8ea0b5','frozen':'#7c9cff','needfix':'#f5b544','broken':'#ff6b6b'};
+  const label={'active':'在用','idle':'待观察','frozen':'冷冻','needfix':'待修','broken':'坏源'};
+  $('list').innerHTML = show.map(r=>{
+    const st=status(r), i=S.indexOf(r), rt=r[3];
+    const w = rt<=0 ? 0 : Math.min(100, Math.round(rt/120)); 
+    const c = rt<=0? 'var(--mute)' : rt<=2000? '#3fd0c9' : rt<=8000? '#f5b544' : '#ff6b6b';
+    const rtTxt = rt<=0? '未测' : rt>999? (rt/1000).toFixed(1)+'s' : rt+'ms';
+    return `<div class="row ${sel.has(i)?'sel':''}" data-i="${i}">
+      <span class="cb"></span>
+      <div class="main">
+        <div class="nm">${r[0]}${r[7]?' ★':''}</div>
+        <div class="meta">
+          ${r[1]?`<span class="dom">${r[1]}</span>`:'<span class="dom" style="background:rgba(255,107,107,.16);color:#ff9b9b">无域名</span>'}
+          ${r[2]?`<span class="grp">${r[2]}</span>`:'<span class="grp" style="opacity:.65">未分组</span>'}
+          <span class="rt" style="--w:${w}%;--c:${c}">${rt<=0?'<span style="opacity:.55">从未测过</span>':'<i></i>'+rtTxt}</span>
+          ${r[4]?'':'<span style="opacity:.7">已禁用</span>'}
+        </div>
+      </div>
+      <span class="chip" style="--c:${color[st]}">${label[st]}</span>
+    </div>`;
+  }).join('') || '<div class="hint">没有匹配的书源</div>';
+  $('more').style.display = show.length < CUR.length ? 'block':'none';
+  $('more').textContent = `已显示 ${show.length.toLocaleString()} / ${CUR.length.toLocaleString()}，继续向下滚动…`;
+}
+render(true);
+
+/* interactions */
+$('q').oninput=()=>render(true);
+$('grp').onchange=()=>render(true);
+$('sort').onchange=()=>render(true);
+$('tabs').onclick=e=>{
+  const b=e.target.closest('.tab'); if(!b) return;
+  tab=b.dataset.k;
+  [...document.querySelectorAll('.tab')].forEach(t=>t.setAttribute('aria-selected', t.dataset.k===tab));
+  render(true);
+};
+$('list').onclick=e=>{
+  const row=e.target.closest('.row'); if(!row) return;
+  const i=+row.dataset.i;
+  if(sel.has(i)) sel.delete(i); else sel.add(i);
+  row.classList.toggle('sel'); updBatch();
+};
+function updBatch(){ $('bn').textContent=`已选 ${sel.size}`; $('batch').classList.toggle('on', sel.size>0); }
+$('batch').onclick=e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  if(b.dataset.act==='clear'){ sel.clear(); render(); updBatch(); return; }
+  const n=sel.size;
+  const map={freeze:'冻结',enable:'启用',ai:'交给 AI 修复',del:'删除'};
+  alert(`【原型】将对 ${n} 条书源执行「${map[b.dataset.act]}」\n\n真实版会把结果写回 app（走 /saveBookSources 或本地数据库）。`);
+};
+/* drawer */
+$('list').addEventListener('contextmenu', e=>{
+  const row=e.target.closest('.row'); if(!row) return; e.preventDefault();
+  const r=S[+row.dataset.i], st=status(r);
+  $('drawer').innerHTML=`
+    <h2>${r[0]}</h2><div class="u">${r[1]||'(无域名)'}</div>
+    <div class="kv">
+      <span class="k">状态</span><span>${({active:'在用',idle:'待观察',frozen:'冷冻',needfix:'待修',broken:'坏源'})[st]}</span>
+      <span class="k">分组</span><span>${r[2]||'(未分组)'}${r[7]?' ★ 你的收藏':''}</span>
+      <span class="k">启用</span><span>${r[4]?'是':'否'}</span>
+      <span class="k">响应</span><span>${r[3]<=0?'未测过':(r[3]/1000).toFixed(1)+'s'}</span>
+      <span class="k">体检结论</span><span>${r[6]||'无问题'}</span>
+    </div>
+    <div class="acts">
+      <button class="ai" data-a="ai">✦ 让 AI 修复这条书源的规则</button>
+      <button data-a="test">▷ 现场体检（搜索/目录/正文跑一遍）</button>
+      <button data-a="freeze">❄ 冻结</button>
+      <button data-a="edit">✎ 编辑规则</button>
+      <button data-a="del">✕ 删除</button>
+    </div>
+    <div class="note">
+      AI 修复的流程：体检收集失败点与 HTML 片段 → 交给 DeepSeek 只改失败的那一段 →
+      <b>回归验证通过才写回</b>，可在弹窗里预览 diff 并回滚。
+    </div>`;
+  $('drawer').classList.add('on'); $('scrim').classList.add('on');
+});
+const close=()=>{$('drawer').classList.remove('on');$('scrim').classList.remove('on')};
+$('scrim').onclick=close;
+window.addEventListener('keydown',e=>e.key==='Escape'&&close());
+$('drawer').onclick=e=>{const b=e.target.closest('button'); if(b) alert('【原型】'+b.textContent.trim())};
+/* infinite scroll */
+window.addEventListener('scroll',()=>{
+  if(window.innerHeight+scrollY > document.body.offsetHeight-600 && $('more').style.display!=='none'){
+    page++; render();
+  }
+});
+/* theme */
+$('theme').onclick=()=>{
+  const h=document.documentElement;
+  h.dataset.theme = h.dataset.theme==='dark'?'light':'dark';
+};
+</script>
+</body>
+</html>
