@@ -39,6 +39,26 @@ object ReadBookConfig {
 
     const val configFileName = "readConfig.json"
     const val shareConfigFileName = "shareReadConfig.json"
+
+    /** 标题字号的合法区间，与排版面板里那根滑块一致（`TypographyTabs` 用的是这两个常量）。 */
+    const val MIN_TITLE_SIZE = 8
+    const val MAX_TITLE_SIZE = 60
+
+    /**
+     * 把 `titleSize` 夹回合法区间。
+     *
+     * 真机抓到过持久化里是 `0` 的配置：这个 fork 把 `titleSize` 当 sp 用
+     * （[io.legado.app.feature.reader.legacy.LegacyReaderPaginationStyleFactory] 直接拿它当字号），
+     * 而老配置 / 老备份里它是「档位下标」，两边语义不一致又没做迁移。
+     * 结果是标题被画成 0 号字：正文里那一行章节名彻底消失，读者只看到「没有标题」，
+     * 却没有任何报错——所以必须在配置进内存这一道就挡掉，而不是靠调用点各自小心。
+     */
+    fun withLegalTitleSize(config: Config): Config =
+        if (config.titleSize in MIN_TITLE_SIZE..MAX_TITLE_SIZE) {
+            config
+        } else {
+            config.copy(titleSize = config.titleSize.coerceIn(MIN_TITLE_SIZE, MAX_TITLE_SIZE))
+        }
     val configFilePath: String get() = configStore.configFilePath
     val shareConfigFilePath: String get() = configStore.shareConfigFilePath
 

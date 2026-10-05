@@ -60,6 +60,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.constant.ReadTipType
 import io.legado.app.data.repository.ReadSettingsRepository
+import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.ui.book.read.ConfigUpdate
 import io.legado.app.ui.book.read.ReadBookIntent
 import io.legado.app.ui.book.read.ReadSheetConfigUiState
@@ -483,7 +484,7 @@ internal fun TypographyTitleTab(
         TinySliderSettingItem(
             title = stringResource(R.string.font_size),
             value = titleSize.toFloat(),
-            valueRange = 8f..60f,
+            valueRange = ReadBookConfig.MIN_TITLE_SIZE.toFloat()..ReadBookConfig.MAX_TITLE_SIZE.toFloat(),
             steps = 51,
             imageVector = Icons.Default.FormatSize,
             valueFormat = { "${it.toInt()}sp" },

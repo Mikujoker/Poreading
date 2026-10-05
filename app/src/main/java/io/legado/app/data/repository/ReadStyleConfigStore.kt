@@ -28,7 +28,7 @@ class ReadStyleConfigStore(private val readStyleRepository: ReadStyleRepository)
     val shareConfig: ReadBookConfig.Config get() = synchronized(lock) { shareConfigRef }
 
     fun initConfigs() {
-        val configs = readStyleRepository.readConfigs()
+        val configs = readStyleRepository.readConfigs().map(ReadBookConfig::withLegalTitleSize)
         synchronized(lock) {
             configList.clear()
             configList.addAll(configs)
@@ -37,7 +37,7 @@ class ReadStyleConfigStore(private val readStyleRepository: ReadStyleRepository)
 
     fun initShareConfig() {
         val fallback = synchronized(lock) { configList.getOrNull(5) } ?: ReadBookConfig.Config()
-        val config = readStyleRepository.readShareConfig(fallback)
+        val config = ReadBookConfig.withLegalTitleSize(readStyleRepository.readShareConfig(fallback))
         synchronized(lock) { shareConfigRef = config }
     }
 
@@ -52,9 +52,9 @@ class ReadStyleConfigStore(private val readStyleRepository: ReadStyleRepository)
     /** 整份替换（应用预设 / 导入）。共享排版开着时，共享那份跟着换。 */
     fun replaceConfigAt(index: Int, config: ReadBookConfig.Config, alsoShare: Boolean) {
         synchronized(lock) {
-            configList[index] = config
+            configList[index] = ReadBookConfig.withLegalTitleSize(config)
             if (alsoShare) {
-                shareConfigRef = config
+                shareConfigRef = ReadBookConfig.withLegalTitleSize(config)
             }
         }
     }
@@ -72,7 +72,7 @@ class ReadStyleConfigStore(private val readStyleRepository: ReadStyleRepository)
                 resetAllLocked()
             }
             val target = if (index in configList.indices) index else 0
-            configList[target] = transform(configList[target])
+            configList[target] = ReadBookConfig.withLegalTitleSize(transform(configList[target]))
         }
     }
 
@@ -83,7 +83,7 @@ class ReadStyleConfigStore(private val readStyleRepository: ReadStyleRepository)
         transform: (ReadBookConfig.Config) -> ReadBookConfig.Config,
     ) {
         if (useShare) {
-            synchronized(lock) { shareConfigRef = transform(shareConfigRef) }
+            synchronized(lock) { shareConfigRef = ReadBookConfig.withLegalTitleSize(transform(shareConfigRef)) }
         } else {
             updateStyleAt(index, transform)
         }
