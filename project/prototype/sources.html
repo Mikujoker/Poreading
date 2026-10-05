@@ -266,10 +266,12 @@ function apply(){
     }
     return true;
   });
-  if(sort==='def') out.sort((a,b)=>{
-    const ra=a[3]<=0?1e9:a[3], rb=b[3]<=0?1e9:b[3];
-    return (b[4]-a[4]) || (ra-rb);
-  });
+  if(sort==='def'){
+    // 1ms 及以下是「从未真正测过」的哨兵值，不能当成最快
+    const PRI={active:0, frozen:1, needfix:2, broken:3, idle:4};
+    const real=x=>x[3]<=1?1e9:x[3];
+    out.sort((a,b)=> (PRI[status(a)]-PRI[status(b)]) || (real(a)-real(b)));
+  }
   else if(sort==='rt') out.sort((a,b)=>{
     const ra=a[3]<=0?1e9:a[3], rb=b[3]<=0?1e9:b[3];
     return ra-rb;
