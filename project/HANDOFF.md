@@ -247,3 +247,51 @@ release 参考包可用 `/mnt/c/Users/mikujoker/legado-work/rel.apk`（debug 证
 生效配置 `titleSize = 0` → 正文里那行章节名被画成 0 号字，彻底消失且无任何报错（用户只会
 说「没标题了」）。原因：老配置/老备份里这个字段是「档位下标」，而 fork 里当 sp 用。已在配置
 进内存与写回的所有入口夹到 8..60（`ReadBookConfig.withLegalTitleSize`）。
+
+---
+
+# PDF / EPUB 阅读引擎
+
+## PDF：已换 MuPDF（2026-10-06）
+
+**旧实现（`android.graphics.pdf.PdfRenderer` + 文本流里的 `<img>`）的三个病**，真机都复现过：
+
+1. `PdfRenderer` **不允许并发 openPage**，而阅读页一次要取一"章"（旧实现 10 页）里的多张图 →
+   抛异常被 `catch (_: Exception) { return null }` 静默吞掉 → **灰页**
+2. `protected fun finalize() { closePdf() }`：GC 时把渲染器关掉，之后**连已加载成功的页也变灰**
+   （用户报的「载入三页，一翻又没了」）
+3. 零缓存：每次进入可视区都重新读盘 + 重新光栅化
+
+**MuPDF 的获取方式**（Artifex 官方 Maven 不可达、JitPack 只有 metadata 没有构件）：
+
+- `.so`：F-Droid 官方 MuPDF viewer 的 APK 里取 `lib/{arm64-v8a,armeabi-v7a}/libmupdf_java.so`
+- Java 绑定：主仓库同 tag 的 `platform/java/src/com/artifex/mupdf/fitz/*.java`（62 个，已进仓库）
+- 库名对应：`Context.java` 里是 `System.loadLibrary("mupdf_java")`
+
+**四个真机踩出来的坑（改这块前必读）**：
+
+1. **`getPixels()` 只接受带 alpha 的 RGB/BGR 位图**，否则运行时抛
+   `invalid colorspace for getPixels (must be RGB/BGR with alpha)`
+2. **本版本绑定里 `getPixels()` 返回 `IntArray`（已按 ARGB 打包）**，不是字节流 →
+   直接 `Bitmap.setPixels(...)`，别自己拼字节/算 stride
+3. ★ **必须自己建 pixmap、`clear(255)` 铺不透明白底，再用 `DrawDevice` 画页**：
+   PDF 页通常没有背景填充（白底是阅读器给的），只画内容的话背景是透明的 → 在深色界面上
+   就成了"白底黑字变黑底"（用户报的"显示不正常"）。官方 viewer 也是先 clear 再画
+4. **页图缓存路径必须带版本号**（现在是 `pdf-v2/`）：磁盘缓存与 Coil 都按文件名作键，
+   改了渲染方式却不换路径，就永远读到旧图（这个坑真机上白花了一轮）
+
+**显示层走漫画阅读器**（`LocalMangaLoader` 增 PDF 分支 + `MainNavGraph` 路由）：
+要的是 telephoto 的「双指缩放 + 缩放后按锁定尺寸平移」，文本阅读器那条路没有视口变换概念。
+
+- 漫画阅读器缩放**默认关闭**（`MangaSettings.disableMangaScale` → `disableScale` 默认 true）→ 已对 PDF 强制打开
+- PDF 一页一章 → 会命中"换章"分支 → 已对 PDF 的 `Ready` 分支返回空列表（否则一页正文夹一屏黑底提示）
+- PDF 强制 `MangaScrollMode.WEBTOON_WITH_GAP`（连续滚动；分页模式在 PDF 上等于不停切章）
+- 漫画阅读器背景默认纯黑（`MangaSettings.background` 默认 `0xFF000000`）→ PDF 换成米色底 +
+  一点粉/蓝/紫的极淡对角渐变（其他书不变、深色主题不变）
+- **PDF 换章名要触发重建**：`MangaReaderDataRepository` 只在 `chapterCount == 0 ||
+  book.isLocalModified()` 时重建章节表 → 删掉该书的 chapters 行即可触发
+
+## EPUB（未做，下一轮主任务）
+
+现状：`me.ag2s.epublib` **只抽文本** → 用户要的"效果无损"做不到。
+计划：解析继续用 epublib，渲染改成 **WebView 加载 spine + 注入主题 CSS**；有内嵌封面就用内嵌的。
