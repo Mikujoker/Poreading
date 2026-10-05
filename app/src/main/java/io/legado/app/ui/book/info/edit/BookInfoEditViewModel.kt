@@ -141,6 +141,9 @@ class BookInfoEditViewModel(
                     // 先把磁盘文件与库内引用一起搬过去（返回 null 表示没搬成，就只改书名）
                     LocalBookRename.rename(oldBook, currentState.name)?.let { newUrl ->
                         book.bookUrl = newUrl
+                        // 库里的 originName 已被迁移改成新文件名，内存这份必须跟上：
+                        // 否则下面 update(book) 会把整行写回，把旧文件名（乱码）又盖回去
+                        book.originName = java.io.File(newUrl).name
                     }
                 }
                 book.name = currentState.name
