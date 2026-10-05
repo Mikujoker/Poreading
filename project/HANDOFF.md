@@ -201,3 +201,49 @@ debug 冷启动 3.0s / **release 413ms**；release 各阶段比 debug 快 3~10 �
 （Application 22ms vs 218ms、Content 首帧 71ms vs 561ms）。慢的是 debug 包本身
 （无 R8、无 baseline profile、dex 校验、纯 JIT）。临时埋点已删。
 release 参考包可用 `/mnt/c/Users/mikujoker/legado-work/rel.apk`（debug 证书签名，仅供计时）。
+
+---
+
+# 2026-10-06 第二轮（书架性能 · 目录规则 · 标题字号）
+
+## 书架切分组：P1/P4 做了，但卡顿没解决 —— 别重复劳动
+
+- P1：`beyondViewportPageCount` 0→1（邻页预组合）
+- P4：远处切分组（|Δ|>1）改「直接落位 + 240ms ease-out 淡入」（`jumpToGroupPage`），不再滑过
+  中间页；相邻切换仍走滑动
+- 启动浮现：一个时钟 + 每条按 index 取相位，在 `graphicsLayer` 里读（不触发重组）。
+  ⚠️ **时钟必须由「LazyGrid 真的布局出内容」触发**（`layoutInfo.totalItemsCount > 0`）：
+  按「数据到了」触发会被 debug 冷启动 3 秒多坑掉，动画整段跑在空屏上，书一出现就是全亮
+- 实测（debug，同协议各两遍）：最坏帧 **p99 150~300ms → 44~69ms**，但**卡顿帧绝对条数没降**
+  （15~23 → 17~21）—— 只是把开销挪了位置
+
+### 测量坑（都踩过）
+
+1. **别看「卡顿率%」**：新包同动作渲染帧数变多（83 → 237），分母一大百分比就好看，
+   绝对条数才作数
+2. profile 结论：一帧 30ms 的 `AndroidOwner:measureAndLayout` 里，19 条书自己只占一部分
+   （全 trace：`bs:itemComp` 301ms vs `Compose:recompose` 728ms，measure 仅 6.3ms）→ 真凶在
+   **条目之外**（pager 的 SubcomposeLayout / LazyGrid / 共享元素 lookahead）与**绘制阶段**
+   （最慢帧 draw 84ms，改动前同类帧约 1ms）
+3. 本机**没有可用的方法级 profiler**：无 root、simpleperf 被内核拒（`cpu-cycles`/`cpu-clock`
+   都不支持）、`am profile --streaming` 拿不到包内 marker → 只能临时插 `Trace.beginSection`
+4. Google 官方：debug 上的 Lazy layout 性能数不可信，最终验收要 release
+
+## 目录规则（D5）已交付：覆盖 69.1% → 76.5%
+
+- 「重新分章」入口：**目录页 → ⋮ → 更新目录**（每本一次）；**批量**入口在
+  **目录规则页 → ⋮ → 对所有本地 TXT 重新分章**
+- 规则表只在**空表**时才从 assets 播种 → 换了内置规则后设备侧要**清空一次规则表**
+- 新增 `TxtTocRule.isFallback`（DB 109→110）：命中数天然占优的规则（分隔线）只在没有普通
+  规则「能用」时才参与竞争。⚠️ **别用 serialNumber<0 当标记**：UI 新建规则不设 serialNumber，
+  默认就是 -1，会把用户自建规则全变成兜底
+- 内置规则 28 → 13 条（15 条停用规则逐条实测：零效果 / 误判爆炸 / 污染，没有一条值得留）
+- 离线回归 harness：`project/scripts/toc_regression.py` —— 照抄 app 的**两层**语义
+  （选规则：第一个 block + 1000 字符窗口；切章：整文件、无窗口）。混成一层会让 14 本对拍书全对不上
+- 剩余 54 本**确认没有章节结构**（两次独立扫描）→ 归 D4 AI 分章
+
+## 标题字号被画成 0 号字（已修）
+
+生效配置 `titleSize = 0` → 正文里那行章节名被画成 0 号字，彻底消失且无任何报错（用户只会
+说「没标题了」）。原因：老配置/老备份里这个字段是「档位下标」，而 fork 里当 sp 用。已在配置
+进内存与写回的所有入口夹到 8..60（`ReadBookConfig.withLegalTitleSize`）。
