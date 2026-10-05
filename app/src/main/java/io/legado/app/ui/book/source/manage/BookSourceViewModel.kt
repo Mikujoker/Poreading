@@ -86,6 +86,7 @@ class BookSourceViewModel(
     private val isSearchMode = MutableStateFlow(false)
     private val filter = MutableStateFlow<String?>(null)
     private val tab = MutableStateFlow(BookSourceTab.COMMON)
+    private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val sort = MutableStateFlow(BookSourceSort.Default)
     private val sortAscending = MutableStateFlow(true)
     private val groupByDomain = MutableStateFlow(false)
@@ -200,19 +201,25 @@ class BookSourceViewModel(
         }
     }
 
+    /** 两个乐观覆盖值先合成一个：combine 的定型重载只到 5 个流。 */
+    private val pendingOverrides = combine(enabledOverrides, favoriteOverrides) { enabled, favorite ->
+        enabled to favorite
+    }
+
     private val listConfiguration = combine(
         sourceFilter,
         isSearchMode,
+        selectedIds,
         sourceSort,
-        enabledOverrides,
-        favoriteOverrides,
-    ) { activeFilter, searchMode, activeSort, pendingEnabled, pendingFavorite ->
+        pendingOverrides,
+    ) { activeFilter, searchMode, selected, activeSort, pending ->
         ListConfiguration(
             activeFilter,
             searchMode,
+            selected,
             activeSort,
-            pendingEnabled,
-            pendingFavorite,
+            pending.first,
+            pending.second,
         )
     }
 
@@ -237,6 +244,9 @@ class BookSourceViewModel(
                         ?: source.isFavorite,
                 )
             }.toImmutableList(),
+            selectedIds = configuration.selectedIds
+                .intersect(visible.map { it.bookSourceUrl }.toSet())
+                .toImmutableSet(),
             searchKey = configuration.filter.query,
             groupFilterName = configuration.filter.name?.displayName(application),
             activeFilter = configuration.filter.name,
@@ -269,6 +279,7 @@ class BookSourceViewModel(
     private data class ListConfiguration(
         val filter: SourceFilter,
         val isSearchMode: Boolean,
+        val selectedIds: Set<String>,
         val sort: SourceSort,
         val enabledOverrides: Map<String, Boolean>,
         val favoriteOverrides: Map<String, Boolean>,
@@ -318,6 +329,11 @@ class BookSourceViewModel(
                 localItems.value = null; searchKey.value = intent.query
             }
 
+            is BookSourceIntent.SetSelection -> selectedIds.value = intent.ids
+            is BookSourceIntent.ToggleSelection -> selectedIds.update {
+                if (intent.id in it) it - intent.id else it + intent.id
+            }
+
             is BookSourceIntent.SetFilter -> {
                 localItems.value = null; filter.value = intent.filter
             }
@@ -341,13 +357,19 @@ class BookSourceViewModel(
             }
 
             is BookSourceIntent.SetEnabled -> setEnabled(intent.id, intent.enabled)
+            is BookSourceIntent.SetFavoriteForSelection ->
+                setFavorite(intent.ids, intent.favorite)
 
             is BookSourceIntent.SetExploreEnabled -> updateExplore(intent.ids, intent.enabled)
-            is BookSourceIntent.Delete -> launch { repository.deleteSourceParts(parts(intent.ids)) }
+            is BookSourceIntent.Delete -> launch {
+                repository.deleteSourceParts(parts(intent.ids))
+                selectedIds.update { it - intent.ids }
+            }
             is BookSourceIntent.MoveToEdge -> moveToEdge(intent.ids, intent.toTop)
             is BookSourceIntent.MoveItem -> moveItem(intent.from, intent.to)
             BookSourceIntent.SaveSortOrder -> saveSortOrder()
             is BookSourceIntent.CommitSortOrder -> commitSortOrder(intent.ids, intent.ascending)
+            is BookSourceIntent.AddToGroup -> updateGroups(intent.ids, intent.group, true)
             is BookSourceIntent.UpdateGroup -> updateGroup(intent.old, intent.new)
             is BookSourceIntent.DeleteGroup -> updateGroup(intent.group, "")
             BookSourceIntent.RefreshCheck -> refreshCheck()
@@ -419,6 +441,23 @@ class BookSourceViewModel(
         }
     }
 
+    /** 批量星标：多选之后一次改一批，「失效」的筛选跟着一起变。 */
+    private fun setFavorite(ids: Set<String>, favorite: Boolean) {
+        if (ids.isEmpty()) return
+        favoriteOverrides.update { it + ids.associateWith { favorite } }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                repository.setFavorite(ids, favorite)
+                allSources.first { sources ->
+                    sources != null && ids.all { id ->
+                        sources.firstOrNull { it.bookSourceUrl == id }?.isFavorite == favorite
+                    }
+                }
+            }.onFailure { favoriteOverrides.update { it - ids } }
+            favoriteOverrides.update { it - ids }
+        }
+    }
+
     /** 星标切换：先乐观置位，等快照确认；写库失败就把覆盖值摘掉，星标回退。 */
     private fun setFavorite(id: String) {
         val current = favoriteOverrides.value[id]
@@ -471,6 +510,13 @@ class BookSourceViewModel(
         repository.getAllPart().filter { it.bookSourceUrl in ids }
     private fun updateExplore(ids: Set<String>, enabled: Boolean) =
         launch { repository.setExploreEnabled(enabled, parts(ids)) }
+
+    private fun updateGroups(ids: Set<String>, group: String, add: Boolean) = launch {
+        val changed = parts(ids).map { part ->
+            part.copy().apply { if (add) addGroup(group) else removeGroup(group) }
+        }
+        repository.updateGroups(changed)
+    }
 
     private fun updateGroup(old: String, new: String) = launch {
         val sources = repository.getByGroup(old)

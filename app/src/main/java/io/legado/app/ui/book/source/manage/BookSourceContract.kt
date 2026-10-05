@@ -69,6 +69,11 @@ data class BookSourceUiState(
 sealed interface BookSourceIntent {
     data class SetSearchMode(val enabled: Boolean) : BookSourceIntent
     data class SetSearchQuery(val query: String) : BookSourceIntent
+    data class SetSelection(val ids: Set<String>) : BookSourceIntent
+    data class ToggleSelection(val id: String) : BookSourceIntent
+    data class SetFavoriteForSelection(val ids: Set<String>, val favorite: Boolean) :
+        BookSourceIntent
+
     data class SetFilter(val filter: String?) : BookSourceIntent
     data class SetTab(val tab: BookSourceTab) : BookSourceIntent
     data class ToggleFavorite(val id: String) : BookSourceIntent
@@ -86,6 +91,7 @@ sealed interface BookSourceIntent {
         val ascending: Boolean,
     ) : BookSourceIntent
 
+    data class AddToGroup(val ids: Set<String>, val group: String) : BookSourceIntent
     data class UpdateGroup(val old: String, val new: String) : BookSourceIntent
     data class DeleteGroup(val group: String) : BookSourceIntent
     /** 按需校验：只扫常用书源，把失效的挑出来 */

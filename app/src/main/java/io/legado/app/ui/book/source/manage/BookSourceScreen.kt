@@ -59,7 +59,9 @@ import io.legado.app.ui.qrcode.QrCodeResult
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.theme.adaptiveHorizontalPadding
+import io.legado.app.ui.widget.components.ActionItem
 import io.legado.app.ui.widget.components.AppTextField
+import io.legado.app.ui.widget.components.DraggableSelectionHandler
 import io.legado.app.ui.widget.components.EmptyMessage
 import io.legado.app.ui.widget.components.GroupManageBottomSheet
 import io.legado.app.ui.widget.components.SearchBar
@@ -76,7 +78,7 @@ import io.legado.app.ui.widget.components.importComponents.BatchImportDialog
 import io.legado.app.ui.widget.components.importComponents.ImportStatus
 import io.legado.app.ui.widget.components.importComponents.SourceInputDialog
 import io.legado.app.ui.widget.components.lazylist.FastScrollLazyColumn
-import io.legado.app.ui.widget.components.list.ListScaffold
+import io.legado.app.ui.widget.components.rules.RuleListScaffold
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
@@ -171,8 +173,10 @@ fun BookSourceScreen(
     val rules = state.items
     val scope = rememberCoroutineScope()
     val aiFixSoonMessage = stringResource(R.string.source_ai_fix_soon)
+    val selectedIds = state.selectedIds
     val listState = rememberLazyListState()
     var deleteIds by remember { mutableStateOf<Set<String>?>(null) }
+    var addGroup by remember { mutableStateOf(false) }
     var groupManage by remember { mutableStateOf(false) }
     var showGroupFilterSheet by remember { mutableStateOf(false) }
     var showOnlineImport by remember { mutableStateOf(false) }
@@ -383,6 +387,15 @@ fun BookSourceScreen(
         },
     )
 
+    TextListInputDialog(
+        show = addGroup,
+        title = stringResource(R.string.add_group),
+        hint = stringResource(R.string.group_name),
+        suggestions = state.groups,
+        onDismissRequest = { addGroup = false },
+        onConfirm = {
+            onIntent(BookSourceIntent.AddToGroup(selectedIds, it)); addGroup = false
+        })
     GroupManageBottomSheet(
         groupManage, state.groups, { groupManage = false },
         onUpdateGroup = { old, new -> onIntent(BookSourceIntent.UpdateGroup(old, new)) },
@@ -398,7 +411,7 @@ fun BookSourceScreen(
         dismissText = stringResource(R.string.cancel),
         onDismiss = { deleteIds = null })
 
-    ListScaffold(
+    RuleListScaffold(
         title = stringResource(R.string.book_source),
         subtitle = state.groupFilterName ?: stringResource(R.string.all),
         state = state,
@@ -406,6 +419,17 @@ fun BookSourceScreen(
         onSearchToggle = { onIntent(BookSourceIntent.SetSearchMode(it)) },
         onSearchQueryChange = { onIntent(BookSourceIntent.SetSearchQuery(it)) },
         searchPlaceholder = stringResource(R.string.search_book_source),
+        onClearSelection = { onIntent(BookSourceIntent.SetSelection(emptySet())) },
+        onSelectAll = {
+            onIntent(BookSourceIntent.SetSelection(displayedRules.map { it.id }.toSet()))
+        },
+        onSelectInvert = {
+            onIntent(
+                BookSourceIntent.SetSelection(
+                    displayedRules.map { it.id }.toSet() - selectedIds
+                )
+            )
+        },
         // 三个标签钉在顶栏下面。多选与批量操作已废弃，这一页只剩「看结果 + 单条深操作」
         bottomContent = {
             Row(
@@ -447,6 +471,21 @@ fun BookSourceScreen(
         },
         snackbarHostState = snackbarHostState,
         onAddClick = onAddSource,
+        // 批量只留与「常用」有关的两项 + 加入分组；删除是底栏的主操作。
+        // 启用/禁用/发现开关/置顶/导出那套用户明确不要
+        selectionSecondaryActions = listOf(
+            ActionItem(stringResource(R.string.source_favorite_add)) {
+                onIntent(BookSourceIntent.SetFavoriteForSelection(selectedIds, true))
+            },
+            ActionItem(stringResource(R.string.source_favorite_remove)) {
+                onIntent(BookSourceIntent.SetFavoriteForSelection(selectedIds, false))
+            },
+            ActionItem(stringResource(R.string.add_group)) { addGroup = true },
+        ),
+        onDeleteSelected = {
+            @Suppress("UNCHECKED_CAST")
+            onIntent(BookSourceIntent.Delete(it as Set<String>))
+        },
         dropDownMenuContent = { dismiss ->
             RoundDropdownMenuItem(
                 text = stringResource(R.string.check_source_config),
@@ -608,9 +647,12 @@ fun BookSourceScreen(
                                 null
                             },
                             isEnabled = item.enabled,
+                            isSelected = item.id in selectedIds,
                             canReorder = canReorder,
-                            // 多选已移除，点整行改成进编辑页：否则这一下会变成死点击
-                            onToggleSelection = { onEditSource(item.id) },
+                            inSelectionMode = selectedIds.isNotEmpty(),
+                            onToggleSelection = {
+                                onIntent(BookSourceIntent.ToggleSelection(item.id))
+                            },
                             onEnabledChange = {
                                 onIntent(
                                     BookSourceIntent.SetEnabled(
@@ -670,6 +712,17 @@ fun BookSourceScreen(
                     }
                 }
             }
+            if (selectedIds.isNotEmpty()) DraggableSelectionHandler(
+                listState = listState,
+                items = displayedRules,
+                selectedIds = selectedIds,
+                onSelectionChange = { onIntent(BookSourceIntent.SetSelection(it)) },
+                idProvider = { it.id },
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(60.dp)
+                    .align(Alignment.TopStart)
+            )
             // 空态：常用是空的（还没点过星标）要去「全部」点星；
             // 失效是空的，要么还没扫过、要么扫完没有坏源 —— 只有它能给刷新的入口
             val emptyRes = when {
