@@ -158,6 +158,10 @@ class BookSourceRepository(private val bookSourceDao: BookSourceDao) {
         bookSourceDao.enable(sourceUrl, enabled)
     }
 
+    suspend fun setFavorite(sourceUrl: String, favorite: Boolean) = withContext(Dispatchers.IO) {
+        bookSourceDao.setFavorite(sourceUrl, favorite)
+    }
+
     suspend fun setExploreEnabled(enabled: Boolean, sources: List<BookSourcePart>) =
         withContext(Dispatchers.IO) {
             bookSourceDao.enableExplore(enabled, sources)

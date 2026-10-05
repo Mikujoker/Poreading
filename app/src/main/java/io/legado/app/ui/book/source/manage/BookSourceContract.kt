@@ -10,10 +10,8 @@ import io.legado.app.ui.widget.components.list.InteractionState
 import io.legado.app.ui.widget.components.list.ListUiState
 import io.legado.app.ui.widget.components.list.SelectableItem
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 
 @Immutable
@@ -28,10 +26,8 @@ data class BookSourceItemUi(
     val hasExploreUrl: Boolean,
     val checkMessage: String? = null,
     val customOrder: Int,
-    /** 健康度，见 SourceHealth */
-    val health: SourceHealth,
-    /** 累计搜索响应耗时（毫秒）；<=1 视为从未真正测过 */
-    val respondTime: Long,
+    /** 常用（≈收藏），见 [BookSourceTab] */
+    val favorite: Boolean,
 ) : SelectableItem<String> {
 }
 
@@ -57,10 +53,11 @@ data class BookSourceUiState(
     val sortAscending: Boolean = true,
     val groupByDomain: Boolean = false,
     val importState: BaseImportUiState<BookSource> = BaseImportUiState.Idle,
-    /** 全部书源（不受筛选影响）的五级计数，用于顶部统计条 */
-    val healthCounts: ImmutableMap<SourceHealth, Int> = persistentMapOf(),
-    /** 当前选中的健康度筛选 */
-    val healthFilter: SourceHealth? = null,
+    /** 当前标签页：常用 / 失效 / 全部 */
+    val tab: BookSourceTab = BookSourceTab.COMMON,
+    /** 本次会话是否跑过校验。没跑过时「失效」是空的，要给刷新入口而不是一个空列表 */
+    val hasScanResult: Boolean = false,
+    val isChecking: Boolean = false,
     val checkProgress: String? = null,
     val checkOptions: BookSourceCheckOptionsUi = BookSourceCheckOptionsUi(),
     val interaction: InteractionState = InteractionState(isLoading = true),
@@ -72,15 +69,13 @@ data class BookSourceUiState(
 sealed interface BookSourceIntent {
     data class SetSearchMode(val enabled: Boolean) : BookSourceIntent
     data class SetSearchQuery(val query: String) : BookSourceIntent
-    data class SetSelection(val ids: Set<String>) : BookSourceIntent
-    data class ToggleSelection(val id: String) : BookSourceIntent
     data class SetFilter(val filter: String?) : BookSourceIntent
-    data class SetHealthFilter(val health: SourceHealth?) : BookSourceIntent
+    data class SetTab(val tab: BookSourceTab) : BookSourceIntent
+    data class ToggleFavorite(val id: String) : BookSourceIntent
     data class SetSort(val sort: BookSourceSort) : BookSourceIntent
     data object ToggleSortDirection : BookSourceIntent
     data object ToggleGroupByDomain : BookSourceIntent
     data class SetEnabled(val id: String, val enabled: Boolean) : BookSourceIntent
-    data class SetEnabledForSelection(val ids: Set<String>, val enabled: Boolean) : BookSourceIntent
     data class SetExploreEnabled(val ids: Set<String>, val enabled: Boolean) : BookSourceIntent
     data class Delete(val ids: Set<String>) : BookSourceIntent
     data class MoveToEdge(val ids: Set<String>, val toTop: Boolean) : BookSourceIntent
@@ -91,16 +86,10 @@ sealed interface BookSourceIntent {
         val ascending: Boolean,
     ) : BookSourceIntent
 
-    data class AddToGroup(val ids: Set<String>, val group: String) : BookSourceIntent
-    data class RemoveFromGroup(val ids: Set<String>, val group: String) : BookSourceIntent
     data class UpdateGroup(val old: String, val new: String) : BookSourceIntent
     data class DeleteGroup(val group: String) : BookSourceIntent
-    data class CheckSelectedInterval(val ids: Set<String>) : BookSourceIntent
-    data class StartCheck(
-        val ids: Set<String>,
-        val keyword: String,
-        val options: BookSourceCheckOptionsUi,
-    ) : BookSourceIntent
+    /** 按需校验：只扫常用书源，把失效的挑出来 */
+    data object RefreshCheck : BookSourceIntent
 
     data class UpdateCheckOptions(val options: BookSourceCheckOptionsUi) : BookSourceIntent
     data object CancelCheck : BookSourceIntent

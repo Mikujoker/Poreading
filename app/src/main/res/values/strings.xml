@@ -3432,16 +3432,14 @@
     <string name="home_capsule_restore_navigation">Restore navigation</string>
     <string name="home_capsule_expand_controls">Show playback controls</string>
     <string name="home_capsule_chapter">Chapter %d</string>
-    <string name="source_health_active">In use</string>
-    <string name="source_health_idle">Watching</string>
-    <string name="source_health_frozen">Frozen</string>
-    <string name="source_health_need_fix">Needs fix</string>
-    <string name="source_health_broken">Broken</string>
-    <string name="source_batch_fix">Repair</string>
-    <string name="source_batch_freeze">Freeze</string>
-    <string name="source_batch_enable">Enable</string>
-    <string name="source_batch_delete">Delete</string>
-    <string name="source_batch_cancel">Cancel</string>
+    <string name="source_tab_common">Common</string>
+    <string name="source_tab_failed">Failed</string>
+    <string name="source_favorite_add">Mark as common</string>
+    <string name="source_favorite_remove">Unmark common</string>
+    <string name="source_failed_not_scanned">Not scanned</string>
+    <string name="source_common_none">No common sources</string>
+    <string name="source_failed_none">Nothing failed</string>
+    <string name="source_check_no_favorite">No common sources</string>
     <string name="source_ai_fix">AI repair</string>
     <string name="source_ai_fix_soon">AI repair is coming soon</string>
 </resources>

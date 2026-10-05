@@ -21,7 +21,7 @@ object DatabaseMigrations {
             migration_35_36, migration_36_37, migration_37_38, migration_38_39,
             migration_39_40, migration_40_41, migration_41_42, migration_42_43,
             migration_82_83, migration_98_99, migration_99_100,
-            migration_102_103,
+            migration_102_103, migration_107_108,
         )
     }
 
@@ -664,6 +664,23 @@ object DatabaseMigrations {
             )
             db.execSQL("DROP TABLE readRecordSession")
             db.execSQL("ALTER TABLE readRecordSession_migrated RENAME TO readRecordSession")
+        }
+    }
+
+    private val migration_107_108 = object : Migration(107, 108) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // 「常用」标记：与 enabled 无关，只服务书源管理的常用清单
+            db.execSQL("ALTER TABLE book_sources ADD COLUMN isFavorite INTEGER NOT NULL DEFAULT 0")
+            // 列表读的是视图，列必须同步加进去。视图 SQL 要与 @DatabaseView 逐字一致：
+            // Room 迁移后会拿 sqlite_master 里的原文跟注解比对
+            db.execSQL("DROP VIEW IF EXISTS `book_sources_part`")
+            // 逐字对齐 @DatabaseView 的原文：行尾空格和缩进都不能差，Room 是拿字符串比对的
+            db.execSQL(
+                "CREATE VIEW `book_sources_part` AS select bookSourceUrl, bookSourceName, bookSourceGroup, customOrder, enabled, enabledExplore, \n" +
+                    "    (loginUrl is not null and trim(loginUrl) <> '') hasLoginUrl, lastUpdateTime, respondTime, weight, \n" +
+                    "    (exploreUrl is not null and trim(exploreUrl) <> '') hasExploreUrl, isFavorite \n" +
+                    "    from book_sources"
+            )
         }
     }
 }

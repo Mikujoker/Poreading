@@ -43,18 +43,27 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class BookSourceViewModel(
     private val application: Application,
     private val repository: BookSourceRepository,
@@ -76,13 +85,15 @@ class BookSourceViewModel(
     private val searchKey = MutableStateFlow("")
     private val isSearchMode = MutableStateFlow(false)
     private val filter = MutableStateFlow<String?>(null)
-    private val healthFilter = MutableStateFlow<SourceHealth?>(null)
-    private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
+    private val tab = MutableStateFlow(BookSourceTab.COMMON)
     private val sort = MutableStateFlow(BookSourceSort.Default)
     private val sortAscending = MutableStateFlow(true)
     private val groupByDomain = MutableStateFlow(false)
     private val localItems = MutableStateFlow<List<BookSourcePart>?>(null)
     private val enabledOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
+    /** 星标的乐观覆盖值：点下去要立刻变，不能等全表快照回来（那要几秒） */
+    private val favoriteOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     private val importState =
         MutableStateFlow<BaseImportUiState<BookSource>>(BaseImportUiState.Idle)
     private val _effects = MutableSharedFlow<BookSourceEffect>(extraBufferCapacity = 16)
@@ -114,8 +125,8 @@ class BookSourceViewModel(
         }
     }
 
-    private val sourceFilter = combine(searchKey, filter, healthFilter) { query, activeFilter, health ->
-        SourceFilter(query, activeFilter, health)
+    private val sourceFilter = combine(searchKey, filter, tab) { query, activeFilter, activeTab ->
+        SourceFilter(query, activeFilter, activeTab)
     }
 
     private val sourceSort = combine(sort, sortAscending, groupByDomain) {
@@ -127,54 +138,53 @@ class BookSourceViewModel(
     }
 
     /**
-     * 规则快照按 url 建索引。必须 stateIn：它是冷流，下面有三处消费，
-     * 不共享的话每次变化都要把两万多条重新建三遍索引。
+     * 校验状态按 500ms 采样后再喂给 UI。
+     * 校验每完成一条就发一次状态，而 UI 要拿它重算整张列表（行上的校验消息 + 失效筛选），
+     * 几千条连着发会把主线程压满。采样只让界面慢半秒，不影响结果本身。
+     * 注意 [init] 判断「刚跑完」用的是未采样的原状态，那里不能采样，否则会漏掉结束那一帧。
      */
-    private val ruleFlagsByUrl = repository.flowRuleFlags()
-        .map { flags -> flags.associateBy { it.bookSourceUrl } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    private val checkUiState = checkGateway.state.sample(500)
 
-    /** 全量健康度索引：一次遍历同时得出「每条的状态」和「五级计数」。 */
-    private data class HealthIndex(
-        val byUrl: Map<String, SourceHealth>,
-        val counts: Map<SourceHealth, Int>,
-    ) {
-        companion object {
-            val EMPTY = HealthIndex(emptyMap(), emptyMap())
+    /** 校验判失败的书源。只活在内存里：进程重启就没了，重新点刷新即可。 */
+    private val failedIds = checkUiState
+        .map { check ->
+            check.results.filterValues { it.status == BookSourceCheckStatus.Failed }.keys.toSet()
         }
-    }
+        .distinctUntilChanged()
 
     /**
-     * 计数的输入是全量、与筛选无关，所以单独从 flowAll 算；
-     * 并且只做**一次**遍历，供统计条、筛选、列表显示三处共用。
+     * 全量书源快照，列表与「刷新」共用同一次全表查询。
+     *
+     * 校验进行中刻意不订阅：校验每写完一条，Room 就会让这个 119 MB 的全表查询重跑一遍
+     * （PC 上单次数秒），几千条连着写会把查询线程压死。校验期间用户看的是进度，
+     * 列表沿用手上最后一份快照就够了；跑完自动恢复订阅并刷新一次。
+     * null 表示第一份快照还没到，用来把「还在加载」和「真的没有书源」区分开。
      */
-    private val healthIndex =
-        combine(repository.flowAll(), ruleFlagsByUrl, enabledOverrides) { all, flags, overrides ->
-            val byUrl = HashMap<String, SourceHealth>(all.size)
-            val counts = HashMap<SourceHealth, Int>(8)
-            all.forEach { part ->
-                val health = part.health(flags[part.bookSourceUrl], overrides[part.bookSourceUrl])
-                byUrl[part.bookSourceUrl] = health
-                counts[health] = (counts[health] ?: 0) + 1
-            }
-            HealthIndex(byUrl, counts)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HealthIndex.EMPTY)
+    private val allSources: StateFlow<List<BookSourcePart>?> = checkGateway.state
+        .map { it.isRunning }
+        .distinctUntilChanged()
+        .flatMapLatest { running -> if (running) emptyFlow() else repository.flowAll() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    private val importedOrFilteredItems = combine(
-        repository.flowAll(),
+    private val importedOrFilteredItems: Flow<List<BookSourcePart>> = combine(
+        allSources,
         localItems,
         sourceFilter,
-        healthIndex,
-    ) { sourceItems, local, activeFilter, index ->
-        if (local == null) {
-            sourceItems.filterFor(activeFilter.name, activeFilter.query)
-                .filter {
-                    activeFilter.health == null ||
-                        index.byUrl[it.bookSourceUrl] == activeFilter.health
+        failedIds,
+        favoriteOverrides,
+    ) { snapshot, local, activeFilter, failed, favorites ->
+        when {
+            snapshot == null -> emptyList()
+            local != null -> {
+                val latestById = snapshot.associateBy { it.bookSourceUrl }
+                local.mapNotNull { latestById[it.bookSourceUrl] }
+            }
+
+            else -> snapshot.filterFor(activeFilter.name, activeFilter.query)
+                .filter { part ->
+                    val favorite = favorites[part.bookSourceUrl] ?: part.isFavorite
+                    activeFilter.tab.matches(part.bookSourceUrl, favorite, failed)
                 }
-        } else {
-            val latestById = sourceItems.associateBy { it.bookSourceUrl }
-            local.mapNotNull { latestById[it.bookSourceUrl] }
         }
     }
 
@@ -193,19 +203,24 @@ class BookSourceViewModel(
     private val listConfiguration = combine(
         sourceFilter,
         isSearchMode,
-        selectedIds,
         sourceSort,
         enabledOverrides,
-    ) { activeFilter, searchMode, selected, activeSort, pendingEnabled ->
-        ListConfiguration(activeFilter, searchMode, selected, activeSort, pendingEnabled)
+        favoriteOverrides,
+    ) { activeFilter, searchMode, activeSort, pendingEnabled, pendingFavorite ->
+        ListConfiguration(
+            activeFilter,
+            searchMode,
+            activeSort,
+            pendingEnabled,
+            pendingFavorite,
+        )
     }
 
     private val listState = combine(
         visibleItems,
         repository.flowGroups(),
         listConfiguration,
-        healthIndex,
-    ) { visible, groups, configuration, index ->
+    ) { visible, groups, configuration ->
         BookSourceUiState(
             items = visible.map { source ->
                 BookSourceItemUi(
@@ -218,23 +233,22 @@ class BookSourceViewModel(
                     hasLoginUrl = source.hasLoginUrl,
                     hasExploreUrl = source.hasExploreUrl,
                     customOrder = source.customOrder,
-                    health = index.byUrl[source.bookSourceUrl] ?: SourceHealth.IDLE,
-                    respondTime = source.respondTime,
+                    favorite = configuration.favoriteOverrides[source.bookSourceUrl]
+                        ?: source.isFavorite,
                 )
             }.toImmutableList(),
-            selectedIds = configuration.selectedIds.intersect(visible.map { it.bookSourceUrl }.toSet())
-                .toImmutableSet(),
             searchKey = configuration.filter.query,
             groupFilterName = configuration.filter.name?.displayName(application),
             activeFilter = configuration.filter.name,
+            tab = configuration.filter.tab,
             groups = groups.toImmutableList(),
             sort = configuration.sort.sort,
             sortAscending = configuration.sort.ascending,
             groupByDomain = configuration.sort.groupByDomain,
-            healthCounts = index.counts.toImmutableMap(),
-            healthFilter = configuration.filter.health,
             interaction = io.legado.app.ui.widget.components.list.InteractionState(
                 isSearchMode = configuration.isSearchMode,
+                // 第一份快照还没到：把「加载中」和「真的没有书源」区分开
+                isLoading = allSources.value == null,
             ),
         )
     }.flowOn(Dispatchers.Default)
@@ -243,7 +257,7 @@ class BookSourceViewModel(
     private data class SourceFilter(
         val query: String,
         val name: String?,
-        val health: SourceHealth?,
+        val tab: BookSourceTab,
     )
 
     private data class SourceSort(
@@ -255,15 +269,15 @@ class BookSourceViewModel(
     private data class ListConfiguration(
         val filter: SourceFilter,
         val isSearchMode: Boolean,
-        val selectedIds: Set<String>,
         val sort: SourceSort,
         val enabledOverrides: Map<String, Boolean>,
+        val favoriteOverrides: Map<String, Boolean>,
     )
 
     val uiState = combine(
         listState,
         importState,
-        checkGateway.state,
+        checkUiState,
         checkSettingsGateway.settings,
     ) { state, importing, check, settings ->
         state.copy(
@@ -274,6 +288,8 @@ class BookSourceViewModel(
             }
                 .toImmutableList(),
             importState = importing,
+            hasScanResult = check.results.isNotEmpty(),
+            isChecking = check.isRunning,
             checkProgress = if (check.isRunning) application.getString(
                 io.legado.app.R.string.progress_show,
                 check.currentSourceName,
@@ -302,15 +318,15 @@ class BookSourceViewModel(
                 localItems.value = null; searchKey.value = intent.query
             }
 
-            is BookSourceIntent.SetSelection -> selectedIds.value = intent.ids
-            is BookSourceIntent.ToggleSelection -> selectedIds.update { if (intent.id in it) it - intent.id else it + intent.id }
             is BookSourceIntent.SetFilter -> {
                 localItems.value = null; filter.value = intent.filter
             }
 
-            is BookSourceIntent.SetHealthFilter -> {
-                localItems.value = null; healthFilter.value = intent.health
+            is BookSourceIntent.SetTab -> {
+                localItems.value = null; tab.value = intent.tab
             }
+
+            is BookSourceIntent.ToggleFavorite -> setFavorite(intent.id)
 
             is BookSourceIntent.SetSort -> {
                 localItems.value = null; sort.value = intent.sort
@@ -325,38 +341,16 @@ class BookSourceViewModel(
             }
 
             is BookSourceIntent.SetEnabled -> setEnabled(intent.id, intent.enabled)
-            is BookSourceIntent.SetEnabledForSelection -> launch {
-                repository.setEnabled(
-                    intent.enabled,
-                    parts(intent.ids)
-                )
-            }
 
             is BookSourceIntent.SetExploreEnabled -> updateExplore(intent.ids, intent.enabled)
-            is BookSourceIntent.Delete -> launch { repository.deleteSourceParts(parts(intent.ids)); selectedIds.update { it - intent.ids } }
+            is BookSourceIntent.Delete -> launch { repository.deleteSourceParts(parts(intent.ids)) }
             is BookSourceIntent.MoveToEdge -> moveToEdge(intent.ids, intent.toTop)
             is BookSourceIntent.MoveItem -> moveItem(intent.from, intent.to)
             BookSourceIntent.SaveSortOrder -> saveSortOrder()
             is BookSourceIntent.CommitSortOrder -> commitSortOrder(intent.ids, intent.ascending)
-            is BookSourceIntent.AddToGroup -> updateGroups(intent.ids, intent.group, true)
-            is BookSourceIntent.RemoveFromGroup -> updateGroups(intent.ids, intent.group, false)
             is BookSourceIntent.UpdateGroup -> updateGroup(intent.old, intent.new)
             is BookSourceIntent.DeleteGroup -> updateGroup(intent.group, "")
-            is BookSourceIntent.CheckSelectedInterval -> checkInterval(intent.ids)
-            is BookSourceIntent.StartCheck -> {
-                if (checkGateway.state.value.isRunning) {
-                    _effects.tryEmit(
-                        BookSourceEffect.ShowSnackbar(
-                            application.getString(io.legado.app.R.string.source_already_checking)
-                        )
-                    )
-                } else {
-                    viewModelScope.launch {
-                        checkSettingsGateway.update(intent.options.toSettings())
-                        _effects.emit(BookSourceEffect.StartCheck(intent.ids, intent.keyword))
-                    }
-                }
-            }
+            BookSourceIntent.RefreshCheck -> refreshCheck()
 
             is BookSourceIntent.UpdateCheckOptions -> viewModelScope.launch {
                 checkSettingsGateway.update(intent.options.toSettings())
@@ -416,11 +410,60 @@ class BookSourceViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 repository.setEnabled(id, enabled)
-                repository.flowAll().first { sources ->
-                    sources.firstOrNull { it.bookSourceUrl == id }?.enabled == enabled
+                // 等共享快照确认，别再单独开一次全表查询（那要好几秒）
+                allSources.first { sources ->
+                    sources?.firstOrNull { it.bookSourceUrl == id }?.enabled == enabled
                 }
             }
             enabledOverrides.update { it - id }
+        }
+    }
+
+    /** 星标切换：先乐观置位，等快照确认；写库失败就把覆盖值摘掉，星标回退。 */
+    private fun setFavorite(id: String) {
+        val current = favoriteOverrides.value[id]
+            ?: allSources.value?.firstOrNull { it.bookSourceUrl == id }?.isFavorite
+            ?: false
+        val next = !current
+        favoriteOverrides.update { it + (id to next) }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                repository.setFavorite(id, next)
+                allSources.first { sources ->
+                    sources?.firstOrNull { it.bookSourceUrl == id }?.isFavorite == next
+                }
+            }.onFailure { favoriteOverrides.update { it - id } }
+        }
+    }
+
+    /**
+     * 「刷新」：只校验常用书源，把失效的挑出来。
+     * 用户口径 —— 没被选成常用的源不测失效，所以失效永远是常用的子集。
+     */
+    private fun refreshCheck() {
+        if (checkGateway.state.value.isRunning) return
+        viewModelScope.launch {
+            val snapshot = allSources.first { it != null }.orEmpty()
+            val ids = snapshot
+                .filter { favoriteOverrides.value[it.bookSourceUrl] ?: it.isFavorite }
+                .map { it.bookSourceUrl }
+                .toSet()
+            if (ids.isEmpty()) {
+                _effects.emit(
+                    BookSourceEffect.ShowSnackbar(
+                        application.getString(io.legado.app.R.string.source_check_no_favorite)
+                    )
+                )
+                return@launch
+            }
+            _effects.emit(
+                BookSourceEffect.StartCheck(
+                    ids = ids,
+                    keyword = application.getString(
+                        io.legado.app.R.string.book_source_check_default_keyword
+                    ),
+                )
+            )
         }
     }
 
@@ -428,13 +471,6 @@ class BookSourceViewModel(
         repository.getAllPart().filter { it.bookSourceUrl in ids }
     private fun updateExplore(ids: Set<String>, enabled: Boolean) =
         launch { repository.setExploreEnabled(enabled, parts(ids)) }
-
-    private fun updateGroups(ids: Set<String>, group: String, add: Boolean) = launch {
-        val changed = parts(ids).map { part ->
-            part.copy().apply { if (add) addGroup(group) else removeGroup(group) }
-        }
-        repository.updateGroups(changed)
-    }
 
     private fun updateGroup(old: String, new: String) = launch {
         val sources = repository.getByGroup(old)
@@ -477,13 +513,6 @@ class BookSourceViewModel(
             )
         }
         repository.updateOrder(ordered)
-    }
-
-    private fun checkInterval(ids: Set<String>) {
-        val items = uiState.value.items
-        val positions = items.mapIndexedNotNull { index, item -> index.takeIf { item.id in ids } }
-        if (positions.isNotEmpty()) selectedIds.value =
-            items.subList(positions.min(), positions.max() + 1).map { it.id }.toSet()
     }
 
     private fun importSources(input: String) {

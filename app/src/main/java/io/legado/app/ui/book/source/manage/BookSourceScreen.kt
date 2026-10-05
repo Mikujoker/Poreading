@@ -58,9 +58,9 @@ import io.legado.app.service.BookSourceCheckService
 import io.legado.app.ui.qrcode.QrCodeResult
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.adaptiveContentPadding
-import io.legado.app.ui.widget.components.ActionItem
+import io.legado.app.ui.theme.adaptiveHorizontalPadding
 import io.legado.app.ui.widget.components.AppTextField
-import io.legado.app.ui.widget.components.DraggableSelectionHandler
+import io.legado.app.ui.widget.components.EmptyMessage
 import io.legado.app.ui.widget.components.GroupManageBottomSheet
 import io.legado.app.ui.widget.components.SearchBar
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
@@ -76,11 +76,12 @@ import io.legado.app.ui.widget.components.importComponents.BatchImportDialog
 import io.legado.app.ui.widget.components.importComponents.ImportStatus
 import io.legado.app.ui.widget.components.importComponents.SourceInputDialog
 import io.legado.app.ui.widget.components.lazylist.FastScrollLazyColumn
+import io.legado.app.ui.widget.components.list.ListScaffold
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
-import io.legado.app.ui.widget.components.rules.RuleListScaffold
 import io.legado.app.ui.widget.components.settingItem.SwitchSettingItem
+import io.legado.app.ui.widget.components.tabRow.AppTabRow
 import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.ui.widget.components.topbar.TopBarActionButton
 import kotlinx.coroutines.flow.collectLatest
@@ -170,16 +171,12 @@ fun BookSourceScreen(
     val rules = state.items
     val scope = rememberCoroutineScope()
     val aiFixSoonMessage = stringResource(R.string.source_ai_fix_soon)
-    val selectedIds = state.selectedIds
     val listState = rememberLazyListState()
     var deleteIds by remember { mutableStateOf<Set<String>?>(null) }
-    var addGroup by remember { mutableStateOf(false) }
-    var removeGroup by remember { mutableStateOf(false) }
     var groupManage by remember { mutableStateOf(false) }
     var showGroupFilterSheet by remember { mutableStateOf(false) }
     var showOnlineImport by remember { mutableStateOf(false) }
-    var checkSourceIds by remember { mutableStateOf<Set<String>?>(null) }
-    var checkSheet by remember { mutableStateOf<CheckSheet?>(null) }
+    var showCheckSettings by remember { mutableStateOf(false) }
     var checkOptionsDraft by remember(state.checkOptions) { mutableStateOf(state.checkOptions) }
     var pendingExportIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showExportSheet by remember { mutableStateOf(false) }
@@ -334,19 +331,8 @@ fun BookSourceScreen(
         },
     )
 
-    CheckBookSourceSheet(
-        sourceIds = checkSourceIds.takeIf { checkSheet == CheckSheet.Run },
-        options = checkOptionsDraft,
-        onDismissRequest = { checkSheet = null },
-        onOpenSettings = { checkSheet = CheckSheet.Settings },
-        onConfirm = { ids, keyword, options ->
-            checkSheet = null
-            onIntent(BookSourceIntent.StartCheck(ids, keyword, options))
-        },
-    )
-
     CheckSourceBottomSheet(
-        show = checkSheet == CheckSheet.Settings,
+        show = showCheckSettings,
         timeoutSeconds = checkOptionsDraft.timeoutSeconds,
         checkSearch = checkOptionsDraft.checkSearch,
         checkDiscovery = checkOptionsDraft.checkDiscovery,
@@ -382,9 +368,9 @@ fun BookSourceScreen(
         onCheckContentChange = { checkOptionsDraft = checkOptionsDraft.copy(checkContent = it) },
         onConfirm = {
             onIntent(BookSourceIntent.UpdateCheckOptions(checkOptionsDraft))
-            checkSheet = CheckSheet.Run
+            showCheckSettings = false
         },
-        onDismiss = { checkSheet = CheckSheet.Run },
+        onDismiss = { showCheckSettings = false },
     )
 
     BookSourceGroupFilterSheet(
@@ -397,22 +383,6 @@ fun BookSourceScreen(
         },
     )
 
-    TextListInputDialog(
-        show = addGroup,
-        title = stringResource(R.string.add_group),
-        hint = stringResource(R.string.group_name),
-        suggestions = state.groups,
-        onDismissRequest = { addGroup = false },
-        onConfirm = { onIntent(BookSourceIntent.AddToGroup(selectedIds, it)); addGroup = false })
-    TextListInputDialog(
-        show = removeGroup,
-        title = stringResource(R.string.remove_group),
-        hint = stringResource(R.string.group_name),
-        suggestions = state.groups,
-        onDismissRequest = { removeGroup = false },
-        onConfirm = {
-            onIntent(BookSourceIntent.RemoveFromGroup(selectedIds, it)); removeGroup = false
-        })
     GroupManageBottomSheet(
         groupManage, state.groups, { groupManage = false },
         onUpdateGroup = { old, new -> onIntent(BookSourceIntent.UpdateGroup(old, new)) },
@@ -428,7 +398,7 @@ fun BookSourceScreen(
         dismissText = stringResource(R.string.cancel),
         onDismiss = { deleteIds = null })
 
-    RuleListScaffold(
+    ListScaffold(
         title = stringResource(R.string.book_source),
         subtitle = state.groupFilterName ?: stringResource(R.string.all),
         state = state,
@@ -436,13 +406,37 @@ fun BookSourceScreen(
         onSearchToggle = { onIntent(BookSourceIntent.SetSearchMode(it)) },
         onSearchQueryChange = { onIntent(BookSourceIntent.SetSearchQuery(it)) },
         searchPlaceholder = stringResource(R.string.search_book_source),
-        onClearSelection = { onIntent(BookSourceIntent.SetSelection(emptySet())) },
-        onSelectAll = {
-            onIntent(BookSourceIntent.SetSelection(displayedRules.map { it.id }.toSet()))
-        },
-        onSelectInvert = {
-            onIntent(BookSourceIntent.SetSelection(displayedRules.map { it.id }
-                .toSet() - selectedIds))
+        // 三个标签钉在顶栏下面。多选与批量操作已废弃，这一页只剩「看结果 + 单条深操作」
+        bottomContent = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .adaptiveHorizontalPadding(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppTabRow(
+                    tabTitles = BookSourceTab.entries.map { stringResource(it.labelRes()) },
+                    selectedTabIndex = state.tab.ordinal,
+                    onTabSelected = {
+                        onIntent(BookSourceIntent.SetTab(BookSourceTab.entries[it]))
+                    },
+                    isScrollable = false,
+                    modifier = Modifier.weight(1f),
+                )
+                // 只有「失效」需要按需扫描：点它才跑校验，且只跑常用那批
+                if (state.tab == BookSourceTab.FAILED) {
+                    SmallPlainButton(
+                        icon = if (state.isChecking) AppIcons.Close else AppIcons.Replay,
+                        contentDescription = stringResource(
+                            if (state.isChecking) R.string.cancel else R.string.refresh
+                        ),
+                        onClick = {
+                            if (state.isChecking) onIntent(BookSourceIntent.CancelCheck)
+                            else onIntent(BookSourceIntent.RefreshCheck)
+                        },
+                    )
+                }
+            }
         },
         topBarActions = {
             TopBarActionButton(
@@ -453,80 +447,10 @@ fun BookSourceScreen(
         },
         snackbarHostState = snackbarHostState,
         onAddClick = onAddSource,
-        selectionSecondaryActions = listOf(
-            ActionItem(stringResource(R.string.enable_selection)) {
-                onIntent(
-                    BookSourceIntent.SetEnabledForSelection(
-                        selectedIds,
-                        true
-                    )
-                )
-            },
-            ActionItem(stringResource(R.string.disable_selection)) {
-                onIntent(
-                    BookSourceIntent.SetEnabledForSelection(
-                        selectedIds,
-                        false
-                    )
-                )
-            },
-            ActionItem(stringResource(R.string.enable_explore)) {
-                onIntent(
-                    BookSourceIntent.SetExploreEnabled(
-                        selectedIds,
-                        true
-                    )
-                )
-            },
-            ActionItem(stringResource(R.string.disable_explore)) {
-                onIntent(
-                    BookSourceIntent.SetExploreEnabled(
-                        selectedIds,
-                        false
-                    )
-                )
-            },
-            ActionItem(stringResource(R.string.add_group)) { addGroup = true },
-            ActionItem(stringResource(R.string.remove_group)) { removeGroup = true },
-            ActionItem(stringResource(R.string.selection_to_top)) {
-                onIntent(
-                    BookSourceIntent.MoveToEdge(
-                        selectedIds,
-                        true
-                    )
-                )
-            },
-            ActionItem(stringResource(R.string.selection_to_bottom)) {
-                onIntent(
-                    BookSourceIntent.MoveToEdge(
-                        selectedIds,
-                        false
-                    )
-                )
-            },
-            ActionItem(stringResource(R.string.check_selected_interval)) {
-                onIntent(
-                    BookSourceIntent.CheckSelectedInterval(
-                        selectedIds
-                    )
-                )
-            },
-            ActionItem(stringResource(R.string.check_book_source)) {
-                checkSourceIds = selectedIds
-                checkOptionsDraft = state.checkOptions
-                checkSheet = CheckSheet.Run
-                onIntent(BookSourceIntent.SetSelection(emptySet()))
-            },
-            ActionItem(stringResource(R.string.export)) {
-                pendingExportIds = selectedIds
-                showExportSheet = true
-            },
-        ),
-        onDeleteSelected = {
-            @Suppress("UNCHECKED_CAST")
-            onIntent(BookSourceIntent.Delete(it as Set<String>))
-        },
         dropDownMenuContent = { dismiss ->
+            RoundDropdownMenuItem(
+                text = stringResource(R.string.check_source_config),
+                onClick = { dismiss(); showCheckSettings = true })
             RoundDropdownMenuItem(
                 text = stringResource(R.string.group_manage),
                 onClick = { dismiss(); groupManage = true })
@@ -591,18 +515,6 @@ fun BookSourceScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // 健康度统计条放在列表首项：随列表滚动，且不用改共享的 RuleListScaffold。
-                // 进入选择模式后隐藏，避免和选择操作栏抢注意力。
-                if (selectedIds.isEmpty()) {
-                    item(key = "health-strip", contentType = "health-strip") {
-                        SourceHealthStrip(
-                            counts = state.healthCounts,
-                            selected = state.healthFilter,
-                            onSelect = { onIntent(BookSourceIntent.SetHealthFilter(it)) },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                    }
-                }
                 displayedRules.forEachIndexed { index, item ->
                     if (state.groupByDomain && (index == 0 || displayedRules[index - 1].domain != item.domain)) {
                         item(key = "domain:${item.domain}", contentType = "domain-header") {
@@ -647,18 +559,6 @@ fun BookSourceScreen(
                         ReorderableSelectionItem(
                             state = reorderState,
                             key = item.id,
-                            // 状态只靠颜色表达，不加文字徽章：底色淡一层，左侧一个色块
-                            containerColor = sourceHealthTint(item.health).copy(alpha = 0.06f),
-                            selectedContainerColor = sourceHealthTint(item.health).copy(alpha = 0.16f),
-                            leadingContent = {
-                                Box(
-                                    modifier = Modifier
-                                        .width(3.dp)
-                                        .height(26.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(sourceHealthTint(item.health))
-                                )
-                            },
                             reorderIndex = index,
                             reorderItemCount = displayedRules.size,
                             onMoveItem = { from, to ->
@@ -708,10 +608,9 @@ fun BookSourceScreen(
                                 null
                             },
                             isEnabled = item.enabled,
-                            isSelected = item.id in selectedIds,
                             canReorder = canReorder,
-                            inSelectionMode = selectedIds.isNotEmpty(),
-                            onToggleSelection = { onIntent(BookSourceIntent.ToggleSelection(item.id)) },
+                            // 多选已移除，点整行改成进编辑页：否则这一下会变成死点击
+                            onToggleSelection = { onEditSource(item.id) },
                             onEnabledChange = {
                                 onIntent(
                                     BookSourceIntent.SetEnabled(
@@ -722,6 +621,21 @@ fun BookSourceScreen(
                             },
                             contentDescription = itemDescription,
                             trailingAction = {
+                                SmallPlainButton(
+                                    icon = if (item.favorite) {
+                                        AppIcons.StarFilled
+                                    } else {
+                                        AppIcons.StarOutline
+                                    },
+                                    contentDescription = stringResource(
+                                        if (item.favorite) R.string.source_favorite_remove
+                                        else R.string.source_favorite_add
+                                    ),
+                                    selected = item.favorite,
+                                    onClick = {
+                                        onIntent(BookSourceIntent.ToggleFavorite(item.id))
+                                    },
+                                )
                                 SmallPlainButton(
                                     icon = AppIcons.Edit,
                                     contentDescription = stringResource(R.string.edit),
@@ -756,17 +670,31 @@ fun BookSourceScreen(
                     }
                 }
             }
-            if (selectedIds.isNotEmpty()) DraggableSelectionHandler(
-                listState = listState,
-                items = displayedRules,
-                selectedIds = selectedIds,
-                onSelectionChange = { onIntent(BookSourceIntent.SetSelection(it)) },
-                idProvider = { it.id },
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(60.dp)
-                    .align(Alignment.TopStart)
-            )
+            // 空态：常用是空的（还没点过星标）要去「全部」点星；
+            // 失效是空的，要么还没扫过、要么扫完没有坏源 —— 只有它能给刷新的入口
+            val emptyRes = when {
+                state.isLoading || displayedRules.isNotEmpty() -> null
+                state.tab == BookSourceTab.COMMON -> R.string.source_common_none
+                state.tab != BookSourceTab.FAILED -> null
+                state.isChecking -> R.string.book_source_check_running
+                state.hasScanResult -> R.string.source_failed_none
+                else -> R.string.source_failed_not_scanned
+            }
+            if (emptyRes != null) {
+                val showRefresh = state.tab == BookSourceTab.FAILED
+                EmptyMessage(
+                    message = stringResource(emptyRes),
+                    isLoading = showRefresh && state.isChecking,
+                    buttonText = if (showRefresh && !state.isChecking) {
+                        stringResource(R.string.refresh)
+                    } else {
+                        null
+                    },
+                    buttonImageVector = AppIcons.Replay,
+                    onButtonClick = { onIntent(BookSourceIntent.RefreshCheck) },
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
         }
     }
 }
@@ -808,47 +736,6 @@ private fun BookSourceImportGroupDialog(
     )
 }
 
-@Composable
-private fun CheckBookSourceSheet(
-    sourceIds: Set<String>?,
-    options: BookSourceCheckOptionsUi,
-    onDismissRequest: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onConfirm: (Set<String>, String, BookSourceCheckOptionsUi) -> Unit,
-) {
-    val defaultKeyword = stringResource(R.string.book_source_check_default_keyword)
-    var keyword by remember(sourceIds, defaultKeyword) { mutableStateOf(defaultKeyword) }
-    AppModalBottomSheet(
-        data = sourceIds,
-        onDismissRequest = onDismissRequest,
-        title = stringResource(R.string.check_book_source),
-        startAction = {
-            MediumTonalButton(
-                icon = AppIcons.Settings,
-                contentDescription = stringResource(R.string.check_source_config),
-                onClick = onOpenSettings,
-            )
-        },
-        endAction = {
-            MediumTonalButton(
-                icon = AppIcons.Check,
-                contentDescription = stringResource(R.string.check_book_source),
-                onClick = { sourceIds?.let { onConfirm(it, keyword.trim(), options) } },
-            )
-        },
-    ) {
-        AppTextField(
-            value = keyword,
-            onValueChange = { keyword = it },
-            label = stringResource(R.string.search_book_key),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            singleLine = true,
-        )
-    }
-}
-
 /**
  * 书源发现状态标志：有发现且已启用为绿点，有发现但未启用为红点，无发现不显示标志。
  * 标志位于条目信息行（分组名 / 校验信息行）开头。状态文案已由条目 contentDescription
@@ -867,8 +754,6 @@ private fun DiscoveryIndicator(enabledExplore: Boolean) {
             )
     )
 }
-
-private enum class CheckSheet { Run, Settings }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable

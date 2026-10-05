@@ -71,3 +71,40 @@
 
 **UI 冲突（待拍板）**
 按原型加的底部批量操作条与本 app 原有的底部图标条重叠 → 撤掉自己那条，避免重复 UI。
+
+## 2026-10-05（晚）A1 三标签重写
+
+### 做完
+
+- 数据层：`book_sources` 加 `isFavorite`；视图 `book_sources_part` 同步加列；
+  `migration_107_108`（ALTER + 重建视图）；DAO/Repository 写入点
+- ViewModel：`BookSourceTab` 三标签、星标乐观更新、刷新只扫常用；
+  删掉 `ruleFlagsByUrl` + `HealthIndex`（省一次 4.1s 全表查询）与全部批量意图
+- 页面：标签行钉在顶栏下、失效页刷新、行上星标；删统计条/多选/行状态色/11 项批量操作
+- 删文件 `SourceHealth.kt`、`SourceHealthStrip.kt`；字符串 4 个 locale
+
+### 性能防护（刷新要跑几千条，不加会死）
+
+1. 校验状态 500ms 采样后才喂 UI（否则每条结果都重算整张列表）
+2. 校验进行中暂停订阅全表快照（否则 Room 每写一条就让 119 MB 查询重跑一遍）
+3. `setEnabled` 复用共享快照，不再单独开全表查询
+
+### 迁移安全
+
+- 迁移前全量拉库备份到 `legado-work/predb/`（125 MB + WAL）；基线：24528 源 / 6429 启用 / 385 书 / v107
+- 迁移后核对：**完全一致**，user_version=108
+- 关键点：迁移里重建视图的 SQL 必须与 `@DatabaseView` 注解**逐字一致**（含行尾空格），
+  Room 迁移后拿 `sqlite_master` 原文比对；已对 `108.json` 的 `createSql` 做 `==` 校验通过
+
+### 踩到的坑
+
+1. **`adb shell input tap` 在 Compose 上会偶发丢点击** —— 同一坐标点两次，一次无效一次有效。
+   复测改用 `input swipe x y x y 120`；坐标来源从「截图目测」改成 `uiautomator dump`
+   （目测会系统性偏 50~80px，害我两次误判成「按钮坏了」）
+2. adb daemon 会自己掉（`cannot connect to daemon`）→ `kill-server` + `start-server`
+3. 设备无 sqlite3 → 查库要 `adb exec-out run-as ... cat databases/legado.db` 拉到 /mnt/c 用 python 查
+
+### 验证结论（都截图看过）
+
+三标签、星标跨进程持久、刷新只扫常用（1 条 → 成功 0 失败 1）、失败落失效列表带原因、
+取消星标即时退出失效、三种空态、无常用时空集提示、校验设置面板、本包崩溃 0

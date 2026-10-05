@@ -2,70 +2,82 @@
 
 ## 现状一句话
 
-「书源管理」的**五级健康度 + 统计条 + 状态色行样式 + AI 修复入口**已实现并**装机验证**；
-最后一步「健康度落盘缓存」已写完、**编译通过**，但**还没在真机验证**（用户拔了手机去吃饭）。
+A1「书源管理」按用户最终口径重写完成并**装机验证**：三个标签（常用/失效/全部）+ 行上星标 +
+「失效」按需刷新（只校验常用）+ AI 修复入口；五级健康度、统计条、多选与全部批量操作已删除。
 
-## 第一步：验证缓存（手机插上后立刻做）
+## 用户口径（别再猜错）
 
-```bash
-# 1) 装最新包
-export PATH="$HOME/.local/bin:$PATH"
-cp ~/work/legado-md3/app/build/outputs/apk/app/debug/app-app-debug.apk /mnt/c/Users/mikujoker/legado-work/v.apk
-adb install -r "C:/Users/mikujoker/legado-work/v.apk"
-adb shell input keyevent KEYCODE_WAKEUP
-adb shell am start -n io.legato.kazusa.debug/io.legado.app.ui.main.MainActivity
-# 2) 导航：我的(1140,2690) → 书源管理(500,1154)，进两次
-```
+> 「启用是启用，常用是常用，常用和收藏差不多，占一个栏位」
+> 「我没有选中成为常用的就不会测试失效」
 
-判定标准：
-1. **第一次**进：统计条慢（要全表扫描），算完写入缓存
-2. **第二次**进：统计条应**第一帧就有数字**，不再等 5 秒
-3. 缓存文件存在且约 1 MB：
-   `adb shell run-as io.legato.kazusa.debug ls -l cache/source_health_cache.json`
-4. 随便拨一条书源的开关再重开：指纹应失效 → 重算一次（数字不该是脏的）
-5. 全程 `FATAL EXCEPTION` 计数为 0
-
-## 性能真相（已实测，别再猜）
-
-| 查询 | PC SSD | 说明 |
-|---|---|---|
-| `book_sources_part` 视图（列表在用） | **5233 ms** | |
-| 规则快照查询 | 4063 ms | |
-| 只读 3 个小列（对照） | 2609 ms | 读小列也要扫全表 |
-
-原因：`book_sources` 是 **24528 行 / 119 MB**，规则以 JSON 文本存储；SQLite 行式存储，
-读一个小列也要把整页读进来。手机闪存比 SSD 慢数倍。
-
-> **缓存救的是统计条和行色；救不了列表本身那次 `flowAll()`。**
-> 要让页面真正秒开，必须在下面二选一：
-> - **分页**：`limit/offset`，并把筛选/排序下推到 SQL（改动中等、风险低）
-> - **派生小表**（TODO 方案 A）：新建约 100 KB 小表只存判定所需字段；需 DB 迁移（高风险，先备份）
-
-## 等用户拍板的两件事
-
-1. **浮动批量操作条**：按原型加的底部文字条与 app 原有的底部图标条**叠在一起了**（截图 `bar2.png`）。
-   我暂时撤掉了自己那条。要么改共享组件 `RuleListScaffold` / `ListScaffold` 把原有的换成文字条，
-   要么沿用原有图标条。**别两条并存。**
-2. **书源体检方案是否应用**（TODO 的 A2）：建议先只冻结「响应 > 8s」那批。
+- **常用 = 独立的一列 `book_sources.isFavorite`**（≈收藏），与 `enabled` 无关
+- **失效 = 常用里被校验判失败的那批** → 失效永远是常用的子集；关掉星标立刻退出失效
+- **全部 = 全部**
+- **刷新只扫常用**（没打星标的源永远不校验）
 
 ## 本轮已装机验证的成果
 
 | 项 | 证据 |
 |---|---|
-| 统计条（五级 + 计数 + 点击筛选） | 截图显示 `4.7k / 1.8w / 1k / 631 / 313` |
-| 行样式（状态色底 + 左侧色块） | 截图：在用=绿、待修/冷冻=紫 |
-| 菜单「AI 修复」入口 | 截图：置顶/置底/搜索/调试/**AI 修复**/删除 |
-| 统计条点击筛选 | 截图：点「待观察」后列表切到禁用源 |
-| 「未测 ≠ 慢」分类修复 | 冷冻 3.5k → 1k、在用 2.2k → 4.7k |
+| 三标签 + 顶栏下拉折叠 | 截图：常用 / 失效 / 全部 |
+| 星标写入 + 跨进程持久 | 打星后重启 app，「常用」里仍有那一条 |
+| 刷新只扫常用 | 常用 1 条 → 点刷新 → 只校验 1 条，snackbar「校验完成：成功 0，失败 1」 |
+| 失败结果留内存 | 失效列表出现该条，附原因「发现失效, 搜索失效」 |
+| 取消星标即退出失效 | 点掉星标 → 失效列表立刻空 |
+| 空态三态 | 常用无源→「无常用」；失效未扫→「未扫描」+刷新；扫完无坏源→「无失效」+刷新 |
+| 无常用时点刷新 | snackbar「没有常用书源」 |
+| 校验设置入口 | ⋮ 菜单第一项 → 超时 + 搜索/发现/详情/目录/正文 |
+| 本包崩溃 | `grep 'Process: io.legato.kazusa'` 计数 0 |
 
-## 环境与验证手法（坑都踩过了）
+## 数据库变更（重要，别再踩）
 
-- 编译：`~/build3.sh`（增量 13~40 秒），产物 `app/build/outputs/apk/app/debug/`
-- `adb` 是 **Windows 程序**（WSL 里包装成 `~/.local/bin/adb`），**看不懂 WSL 路径**，push/pull 要走 `/mnt/c` 中转
-- 截图：`adb exec-out screencap -p > /mnt/c/...png`，再用 read 工具看
-- 手机休眠会让 `input tap` 失效 → 先 `input keyevent KEYCODE_WAKEUP`
-- ColorOS **封了 `appops set`**，权限只能手点
-- SAF 授权**不能跨 app 转移**；本地书 bookUrl 已批量改成裸路径（见下）
-- 构建/下载一律 `unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY`（WSL 里设了代理，
-  连国内镜像也走代理会慢十倍；GitHub 用 `gh-proxy.com`）
-- 用 Web API 测本地书正文时**必须先 `refreshToc` 建章节表**，否则 `getBookContent` 会假失败
+- `book_sources` 新增 `isFavorite INTEGER NOT NULL DEFAULT 0`；DB 版本 **107 → 108**
+- 迁移 `migration_107_108`（`DatabaseMigrations.kt`）：`ALTER TABLE` + **重建 `book_sources_part` 视图**
+- ⚠️ **视图 SQL 必须与 `@DatabaseView` 注解逐字一致**（含行尾空格与 4 空格缩进）：
+  Room 在迁移后会拿 `sqlite_master` 里的原文跟注解比对，差一个空格就抛
+  「Migration didn't properly handle」。比对方法：读 `app/schemas/.../108.json` 里
+  `views[].createSql`（把 `${VIEW_NAME}` 换成视图名），与迁移里拼出的字符串做 `==`
+- 迁移前后数据核对（已做）：书源 24528、启用 6429、书籍 385、user_version 107→108
+
+## 性能真相（更新）
+
+- 旧实现每次进页面要跑两次全表：`book_sources_part` 视图 5.2s + 规则快照查询 4.1s
+- 本轮删掉健康度索引 → **省掉那 4.1s**；列表本身那次 `flowAll()` 还在（体量决定）
+- 三处针对「刷新要跑几千条」的防护：
+  1. 校验状态 500ms 采样后才喂 UI（否则每条结果都重算整张列表）
+  2. **校验进行中暂停订阅全表快照**（否则 Room 每写一条就让 119 MB 查询重跑一遍）
+  3. `setEnabled` 复用共享快照，不再单独开一次全表查询
+- 想让页面**真正秒开**只有两条路：分页（筛选/排序下推到 SQL），或派生约 100 KB 小表（需迁移）
+
+## 环境与验证手法（这轮的坑）
+
+- 编译 `~/build3.sh`（增量 27~70s）；装机 `adb install -r "C:/Users/mikujoker/legado-work/v.apk"`
+- **`adb shell input tap` 在 Compose 上会偶发丢点击** → 复测用 `input swipe x y x y 120`
+- **别从截图目测坐标**：目测会系统性偏差 50~80px。用
+  `adb shell uiautomator dump /sdcard/ui.xml` 拿真实 bounds 再点
+- adb daemon 会自己掉（报 `cannot connect to daemon`）→ `adb kill-server && adb start-server`
+- 手机休眠让 input 失效 → 先 `input keyevent KEYCODE_WAKEUP`
+- 判崩溃只看自己包名：`grep 'Process: io.legato.kazusa'`
+- 设备无 `sqlite3` → 查库要么 `adb exec-out run-as io.legato.kazusa.debug cat databases/legado.db > ...`
+  拉下来用 python3 sqlite3 查，要么走 app 内 Web API
+- 构建/下载一律 `unset http_proxy https_proxy`
+
+## 备份位置
+
+- 迁移前：`/mnt/c/Users/mikujoker/legado-work/predb/`（legado.db + wal + shm，user_version 107）
+- 迁移后：`/mnt/c/Users/mikujoker/legado-work/postdb/`（user_version 108）
+
+## 等用户拍板
+
+1. **默认落在哪个标签**：现在默认「常用」，而常用初始是空的 —— 用户可能觉得「打开是空的像坏了」。
+   备选：默认「全部」。已给「常用」加了「无常用」空态，但没有跳转按钮。
+2. 校验会写库（`respondTime` + 失败源加「网站失效/搜索失效」等分组 + 错误注释），这是 app 原有
+   「校验书源」的行为，本轮**没有**改成只读。要纯只读得给 `BookSourceCheckRepository` 加 `persist` 开关。
+
+## 下一步候选
+
+- A2 应用书源体检方案（等用户拍板）
+- 去重后的 12680 条入库（99 MB JSON 在 `/mnt/c/Users/mikujoker/legado-work/bookSource.deduped.json`，
+  入库方式未定：导入 or Web API `/saveBookSources`）
+- 列表分页（唯一能让这页真正秒开的路）
+- B1/B3 阅读界面配色与字体

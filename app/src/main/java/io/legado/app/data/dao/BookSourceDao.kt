@@ -357,6 +357,9 @@ interface BookSourceDao {
         }
     }
 
+    @Query("update book_sources set isFavorite = :favorite where bookSourceUrl = :bookSourceUrl")
+    fun setFavorite(bookSourceUrl: String, favorite: Boolean)
+
     @Query("update book_sources set enabledExplore = :enable where bookSourceUrl = :bookSourceUrl")
     fun enableExplore(bookSourceUrl: String, enable: Boolean)
 

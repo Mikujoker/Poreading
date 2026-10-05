@@ -102,7 +102,10 @@ data class BookSource(
     @ColumnInfo(defaultValue = "0")
     var customButton: Boolean = false, //由书源控制的自定义按钮
     // 首页模块定义，JSON数组。每个元素: key, type(banner/ranking/grid/card/filter), title, args?, url?
-    var homepageModules: String? = null
+    var homepageModules: String? = null,
+    // 常用（≈收藏）：书源管理「常用」清单的标记，与 enabled 无关
+    @ColumnInfo(defaultValue = "0")
+    var isFavorite: Boolean = false
 ) : Parcelable, BaseSource {
 
     @Ignore

@@ -21,12 +21,14 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.RssFeed
 import androidx.compose.material.icons.outlined.Sell
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 import io.legado.app.ui.main.MainDestination
@@ -40,6 +42,7 @@ import top.yukonga.miuix.kmp.icon.extended.ContactsBook
 import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.Edit
 import top.yukonga.miuix.kmp.icon.extended.Favorites
+import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
 import top.yukonga.miuix.kmp.icon.extended.Filter
 import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.MoreCircle
@@ -116,6 +119,15 @@ object AppIcons {
     val Check: ImageVector
         @Composable
         get() = Icons.Default.Check
+
+    /** 常用（星标）：实心=已加常用，空心=未加 */
+    val StarFilled: ImageVector
+        @Composable
+        get() = if (isMiuix) MiuixIcons.Regular.FavoritesFill else Icons.Default.Star
+
+    val StarOutline: ImageVector
+        @Composable
+        get() = if (isMiuix) MiuixIcons.Regular.Favorites else Icons.Outlined.StarBorder
 
     val Group: ImageVector
         @Composable
