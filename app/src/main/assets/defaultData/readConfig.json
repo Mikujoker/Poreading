@@ -103,6 +103,24 @@
     "darkStatusIconNight": false
   },
   {
+    "name": "米纸·宋",
+    "bgStr": "kazusa-paper-gray.jpg",
+    "bgStrNight": "kazusa-night-warm.jpg",
+    "bgType": 1,
+    "bgTypeNight": 1,
+    "textColor": "#1A1613",
+    "textColorNight": "#EFE6D9",
+    "textAccentColor": "#B4603A",
+    "textAccentColorNight": "#D98A5A",
+    "lineSpacingExtra": 12,
+    "paragraphSpacing": 2,
+    "letterSpacing": 0.0,
+    "textFont": "file:///storage/emulated/0/legado/fonts/NotoSerifSC-Regular.otf",
+    "bgAlpha": 100,
+    "darkStatusIcon": true,
+    "darkStatusIconNight": false
+  },
+  {
     "name": "米纸·纸页",
     "bgStr": "kazusa-paper-page.jpg",
     "bgStrNight": "kazusa-night-warm.jpg",

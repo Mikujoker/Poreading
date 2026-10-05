@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -133,15 +134,26 @@ fun BookshelfGridItem(
                 }
             }
             if (gridStyle == 0) {
+                // 封面下这行字按 DESIGN.md 的字阶定：13sp/500（小字号档 11sp），行高 1.4，
+                // 并固定两行高度 —— 一行与两行的书名不会把下一排顶歪
+                val titleStyle = if (titleSmallFont) {
+                    LegadoTheme.typography.labelSmall
+                } else {
+                    LegadoTheme.typography.labelMedium
+                }
                 AppText(
                     text = title,
-                    style = if (titleSmallFont) LegadoTheme.typography.labelSmall else LegadoTheme.typography.labelMedium,
-                    maxLines = titleMaxLines,
+                    style = titleStyle.copy(
+                        color = LegadoTheme.colorScheme.onSurface,
+                        lineHeight = titleStyle.fontSize * 1.4f,
+                    ),
+                    maxLines = titleMaxLines.coerceAtMost(2),
                     overflow = TextOverflow.Ellipsis,
                     textAlign = if (titleCenter) TextAlign.Center else TextAlign.Start,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 4.dp, end = 4.dp, bottom = 4.dp)
+                        .heightIn(min = (if (titleSmallFont) 32 else 38).dp)
+                        .padding(start = 6.dp, end = 6.dp, bottom = 8.dp)
                 )
             }
         }

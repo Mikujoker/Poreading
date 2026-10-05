@@ -79,6 +79,11 @@ def add_grain(img, rng, amp, bright_cap=1.2):
     return img + (np.clip(n, -2.0, bright_cap) * amp)[..., None]
 
 
+def add_fibers_light(img, rng, count, amp, length, blur=0.7):
+    """与 add_fibers 同源，方便灰纸单独调参。"""
+    return add_fibers(img, rng, count=count, amp=amp, length=length)
+
+
 def save(img, path):
     Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).save(path, quality=95)
     print('->', path)
@@ -103,6 +108,13 @@ def main(out='app/src/main/assets/bg'):
         add_light_gradient(base('#F5EFE6'), 0, 0), rng, 4.5, 18),
         rng, count=12000, amp=4.0, length=(5, 22)), rng, 3.2)
     save(cotton, f'{out}/kazusa-paper-cotton.jpg')
+
+    # 米纸·宋（照用户参考图 2d9bdd1d…_720 取样：暖灰底 #E4DFDC、纹理起伏 std≈5.6）
+    gray = add_grain(add_fibers(add_laid_lines(
+        add_light_gradient(base('#E4DFDC'), 4.0, -4.0), rng, amp=2.2),
+        rng, count=20000, amp=7.0), rng, 3.0)
+    gray = add_mottle(gray, rng, 1.8, 26)
+    save(gray, f'{out}/kazusa-paper-gray.jpg')
 
     # 夜间：暖褐（纸感）与深蓝（夜景）
     night_warm = add_grain(add_fibers(add_mottle(base('#16120E'), rng, 2.0, 26),

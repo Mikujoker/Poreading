@@ -184,7 +184,10 @@ fun BookCoverImage(
             )
         }
 
-        if (showDefaultIcon) {
+        // 有书名时不再画通用书本图标：两者抢焦点（书封设计原则：只能有一个阅读顺序）
+        val titleWillBeDrawn = (if (isNight) coverSettings.showNameDark else coverSettings.showName) &&
+            !name.isNullOrBlank()
+        if (showDefaultIcon && !titleWillBeDrawn) {
             Icon(
                 Icons.Default.Book,
                 contentDescription = null,
@@ -474,6 +477,55 @@ private fun isLatinBasedText(text: String?): Boolean {
     return latinRatio > 0.3f
 }
 
+/** 这些字符不能出现在行首（中文排版的「避头尾」）。 */
+private const val LINE_START_FORBIDDEN = "，。、；：！？）》」』】”’…·"
+
+/**
+ * 书名的断行：按实测宽度把文本分成 1~[maxLines] 行，行宽尽量均衡，收尾标点不带行首，
+ * 西文优先在空格处断。
+ *
+ * 书封设计原则里「断行要按视觉重量平衡、别留孤字」——StaticLayout 只会傻填满一行，
+ * 长中文书名会甩出「对)」这种孤字，所以这里自己做。
+ */
+private fun balancedTitleLines(
+    text: String,
+    paint: Paint,
+    maxWidth: Float,
+    maxLines: Int = 3,
+): List<String> {
+    if (text.isBlank()) return emptyList()
+    val widths = FloatArray(text.length) { paint.measureText(text, it, it + 1) }
+    val total = widths.sum()
+    if (total <= maxWidth) return listOf(text)
+    val lines = ((total / maxWidth).toInt() + 1).coerceAtMost(maxLines)
+    val target = total / lines
+    val out = mutableListOf<String>()
+    var start = 0
+    for (li in 0 until lines) {
+        if (li == lines - 1) {
+            out += text.substring(start)
+            break
+        }
+        var acc = 0f
+        var end = start
+        while (end < text.length) {
+            acc += widths[end]
+            end++
+            val restChars = text.length - end
+            val restLines = lines - li - 1
+            if (acc >= target && restChars >= restLines) break
+        }
+        // 西文别把单词劈两半：能回退到空格就回退
+        val space = text.lastIndexOf(' ', (end - 1).coerceAtLeast(start))
+        if (space > start + (end - start) / 2) end = space
+        // 避头尾：行首是收尾标点就把前一个字拉过来
+        if (end < text.length && text[end] in LINE_START_FORBIDDEN) end++
+        out += text.substring(start, end).trim()
+        start = end
+    }
+    return out.filter { it.isNotEmpty() }.take(maxLines)
+}
+
 @Composable
 private fun CoverTextOverlay(
     name: String?,
@@ -511,151 +563,84 @@ private fun CoverTextOverlay(
                     return@drawWithCache onDrawBehind { }
                 }
 
-                val namePaint = if (showName && !name.isNullOrBlank()) {
-                    Paint().apply {
+                // 默认封面（没有封面图时）的文字排版按 DESIGN.md 定：
+                // 居中成块、字号随书名长度自适应、最多 3 行、行高 1.25、作者降一级跟在书名下面。
+                // 不用白色描边 —— 那是给图片封面保证可读性的手法，平底封面上只会显脏。
+                val nameTextSize = name?.takeIf(String::isNotBlank)?.let { n ->
+                    when {
+                        n.length <= 4 -> viewWidth / 5.8f
+                        n.length <= 7 -> viewWidth / 7.0f
+                        n.length <= 11 -> viewWidth / 8.4f
+                        else -> viewWidth / 9.8f
+                    }
+                } ?: (viewWidth / 8f)
+                val authorTextSize = nameTextSize * 0.42f
+
+                val nameTextPaint = if (showName && !name.isNullOrBlank()) {
+                    TextPaint().apply {
                         isAntiAlias = true
                         textAlign = Paint.Align.CENTER
-                        typeface = Typeface.DEFAULT_BOLD
-                        textSize = viewWidth / 8f
+                        typeface = Typeface.DEFAULT
+                        textSize = nameTextSize
                         color = textColor
                         if (coverSettings.showShadow) {
-                            setShadowLayer(4f, 2f, 2f, shadowColor)
+                            setShadowLayer(3f, 1f, 1f, shadowColor)
                         }
                     }
                 } else null
 
-                val nameMaxWidth = (viewWidth * 0.8f).toInt().coerceAtLeast(1)
-                val nameTextPaint = if (namePaint != null && isHorizontal) {
-                    TextPaint(namePaint).apply { textAlign = Paint.Align.LEFT }
-                } else null
-                val nameLayout = if (nameTextPaint != null && name != null) {
-                    StaticLayout.Builder
-                        .obtain(name, 0, name.length, nameTextPaint, nameMaxWidth)
-                        .setAlignment(Layout.Alignment.ALIGN_CENTER)
-                        .setMaxLines(3)
-                        .setEllipsize(TextUtils.TruncateAt.END)
-                        .build()
-                } else null
-                val nameLayoutX = (viewWidth - nameMaxWidth) / 2f
-                val nameLayoutY = viewHeight * 0.08f
-
-                val nameStrokePaint =
-                    if (namePaint != null && !isHorizontal && coverSettings.showStroke) {
-                        Paint(namePaint).apply {
-                            color = Color.White.toArgb()
-                            style = Paint.Style.STROKE
-                            strokeWidth = namePaint.textSize / 10
-                            clearShadowLayer()
-                        }
-                    } else null
-                val nameCharDraws = if (namePaint != null && name != null && !isHorizontal) {
-                    val charHeight = namePaint.fontMetrics.let { it.bottom - it.top }
-                    var startX = viewWidth * 0.16f
-                    var startY = viewHeight * 0.16f
-                    name.map { char ->
-                        val draw = Triple(char.toString(), startX, startY)
-                        startY += charHeight
-                        if (startY > viewHeight * 0.8f) {
-                            startX += namePaint.textSize * 1.2f
-                            startY = viewHeight * 0.2f
-                        }
-                        draw
-                    }
-                } else emptyList()
+                val nameLines = if (nameTextPaint != null && name != null) {
+                    balancedTitleLines(name, nameTextPaint, viewWidth * 0.86f)
+                } else {
+                    emptyList()
+                }
+                // 展示级字号行距收紧（正文才有 1.4~1.6，书封标题 1.1~1.2 才对）
+                val lineHeight = nameTextSize * 1.18f
 
                 val authorPaint = if (showAuthor && !author.isNullOrBlank()) {
-                    Paint().apply {
+                    TextPaint().apply {
                         isAntiAlias = true
                         textAlign = Paint.Align.CENTER
-                        textSize = viewWidth / 12f
+                        textSize = authorTextSize
                         color = textColor
-                        if (coverSettings.showShadow) {
-                            setShadowLayer(4f, 1f, 1f, shadowColor)
-                        }
+                        alpha = 150
                     }
                 } else null
-
-                val authorText = if (authorPaint != null && author != null && isHorizontal) {
+                val authorText = if (authorPaint != null && author != null) {
                     TextUtils.ellipsize(
                         author,
                         TextPaint(authorPaint),
-                        viewWidth * 0.9f,
-                        TextUtils.TruncateAt.END
+                        viewWidth * 0.84f,
+                        TextUtils.TruncateAt.END,
                     ).toString()
                 } else null
-                val authorStrokePaint =
-                    if (authorPaint != null && isHorizontal && coverSettings.showStroke) {
-                        Paint(authorPaint).apply {
-                            color = Color.White.toArgb()
-                            style = Paint.Style.STROKE
-                            strokeWidth = authorPaint.textSize / 10
-                            clearShadowLayer()
-                        }
-                    } else null
-                val authorCharDraws = if (authorPaint != null && author != null && !isHorizontal) {
-                    val charHeight = authorPaint.fontMetrics.let { it.bottom - it.top }
-                    val startX = viewWidth * 0.84f
-                    var startY = (viewHeight * 0.16f - (author.length * charHeight))
-                        .coerceAtLeast(viewHeight * 0.2f)
-                    author.map { char ->
-                        val draw = Triple(char.toString(), startX, startY)
-                        startY += charHeight
-                        draw
-                    }
-                } else emptyList()
+
+                val nameBlockHeight = nameLines.size * lineHeight
+                val gap = if (authorPaint != null) authorTextSize * 0.9f else 0f
+                val extra = if (authorPaint != null) authorTextSize else 0f
+                val blockTop = ((viewHeight - nameBlockHeight - gap - extra) / 2f)
+                    .coerceAtLeast(viewHeight * 0.1f)
+                val firstBaseline = blockTop + nameTextSize * 0.95f
+                val authorBaseline = blockTop + nameBlockHeight + gap + authorTextSize * 0.82f
 
                 onDrawBehind {
                     drawIntoCanvas { canvas ->
                         val nativeCanvas = canvas.nativeCanvas
-
-                        if (nameLayout != null && nameTextPaint != null) {
-                            nativeCanvas.withSave {
-                                translate(nameLayoutX, nameLayoutY)
-                                if (coverSettings.showStroke) {
-                                    nameTextPaint.style = Paint.Style.STROKE
-                                    nameTextPaint.strokeWidth = nameTextPaint.textSize / 12
-                                    val originalColor = nameTextPaint.color
-                                    nameTextPaint.color = Color.White.toArgb()
-                                    nameTextPaint.clearShadowLayer()
-                                    nameLayout.draw(this)
-                                    nameTextPaint.style = Paint.Style.FILL
-                                    nameTextPaint.color = originalColor
-                                    if (coverSettings.showShadow) {
-                                        nameTextPaint.setShadowLayer(4f, 2f, 2f, shadowColor)
-                                    }
-                                }
-                                nameLayout.draw(this)
+                        var baseline = firstBaseline
+                        nameLines.forEach { line ->
+                            nameTextPaint?.let {
+                                nativeCanvas.drawText(line, viewWidth / 2f, baseline, it)
                             }
-                        } else if (namePaint != null) {
-                            nameCharDraws.forEach { (text, x, y) ->
-                                if (nameStrokePaint != null) {
-                                    nativeCanvas.drawText(text, x, y, nameStrokePaint)
-                                }
-                                nativeCanvas.drawText(text, x, y, namePaint)
-                            }
+                            baseline += lineHeight
                         }
-
-                        if (authorPaint != null) {
-                            if (authorText != null) {
-                                if (authorStrokePaint != null) {
-                                    nativeCanvas.drawText(
-                                        authorText,
-                                        viewWidth / 2,
-                                        viewHeight * 0.75f,
-                                        authorStrokePaint
-                                    )
-                                }
-                                nativeCanvas.drawText(
-                                    authorText,
-                                    viewWidth / 2,
-                                    viewHeight * 0.75f,
-                                    authorPaint
-                                )
-                            } else {
-                                authorCharDraws.forEach { (text, x, y) ->
-                                    nativeCanvas.drawText(text, x, y, authorPaint)
-                                }
-                            }
+                        // 书封上只用留白和明度做分隔，不加描边/发光（那是弱构图的遮羞布）
+                        if (authorPaint != null && authorText != null) {
+                            nativeCanvas.drawText(
+                                authorText,
+                                viewWidth / 2f,
+                                authorBaseline,
+                                authorPaint,
+                            )
                         }
                     }
                 }
