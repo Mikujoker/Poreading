@@ -92,6 +92,26 @@ fun BookInfoEditScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
+    // 本地书改了书名：问一次要不要连磁盘上的源文件一起改名
+    var askRenameSource by remember { mutableStateOf(false) }
+
+    if (askRenameSource) {
+        AppAlertDialog(
+            show = true,
+            onDismissRequest = { askRenameSource = false },
+            title = stringResource(R.string.book_rename_source_title),
+            confirmText = stringResource(R.string.book_rename_source_confirm),
+            onConfirm = {
+                askRenameSource = false
+                viewModel.save(onSave, renameSourceFile = true)
+            },
+            dismissText = stringResource(R.string.book_rename_source_dismiss),
+            onDismiss = {
+                askRenameSource = false
+                viewModel.save(onSave)
+            },
+        )
+    }
 
     AppScaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -105,7 +125,10 @@ fun BookInfoEditScreen(
                 },
                 actions = {
                     TopBarActionButton(
-                        onClick = { viewModel.save(onSave) },
+                        onClick = {
+                            if (viewModel.shouldAskRenameSource()) askRenameSource = true
+                            else viewModel.save(onSave)
+                        },
                         imageVector = Icons.Default.Save,
                         contentDescription = stringResource(R.string.save)
                     )

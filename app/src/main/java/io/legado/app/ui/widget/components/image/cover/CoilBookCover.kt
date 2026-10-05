@@ -539,7 +539,7 @@ private fun balancedTitleLines(
 /** 默认封面的纸色 / 墨色 / 朱砂（用户口径：米粉底 + 山水 + 手写楷体书名 + 朱红印章）。 */
 private const val COVER_PAPER_DAY = 0xFFF7EEE6.toInt()
 private const val COVER_PAPER_NIGHT = 0xFF221D19.toInt()
-private const val COVER_INK_DAY = 0xFF2A2420.toInt()
+private const val COVER_INK_DAY = 0xFF3A322B.toInt()
 private const val COVER_INK_NIGHT = 0xFFE8DFD3.toInt()
 private const val COVER_SEAL = 0xFFB03A2A.toInt()
 
@@ -552,12 +552,22 @@ private val coverArtBitmap: ImageBitmap? by lazy {
     }.getOrNull()
 }
 
-/** 手写楷体：优先用外挂字体目录里的霞鹜文楷（B3 约定），取不到回退系统衬线。 */
-private val coverKaiTypeface: Typeface by lazy {
-    runCatching {
-        val f = File(FileUtils.getSdCardPath(), "legado/fonts/LXGWWenKaiScreen.ttf")
-        if (f.isFile) Typeface.createFromFile(f) else null
-    }.getOrNull() ?: Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+/**
+ * 封面书名的字体：优先毛笔楷书（用户口径：笔锋明显、墨迹重、粗细对比大、轮廓强）。
+ *
+ * 候选来源都是可自由分发的开源字体：志莽行书（用户选定，飘逸）→ 马善政毛笔楷书 → 霞鹜文楷 →
+ * 系统衬线。
+ * 从外挂字体目录读（B3 约定），读不到就往后回退，不能因为缺字体把封面画崩。
+ */
+private val coverTitleTypeface: Typeface by lazy {
+    val dir = File(FileUtils.getSdCardPath(), "legado/fonts")
+    listOf("ZhiMangXing-Regular.ttf", "MaShanZheng-Regular.ttf", "LXGWWenKaiScreen.ttf")
+        .firstNotNullOfOrNull { name ->
+            runCatching {
+                File(dir, name).takeIf(File::isFile)?.let { Typeface.createFromFile(it) }
+            }.getOrNull()
+        }
+        ?: Typeface.create(Typeface.SERIF, Typeface.NORMAL)
 }
 
 /** 印章里的作者名：1~2 字竖排，3~4 字排成两行（最多刻 4 个字）。 */
@@ -615,12 +625,12 @@ private fun CoverTextOverlay(
                 val titlePaint = Paint().apply {
                     isAntiAlias = true
                     textAlign = Paint.Align.CENTER
-                    typeface = coverKaiTypeface
+                    typeface = coverTitleTypeface
                     textSize = titleSize
                     color = inkColor
                 }
                 val titleLines = balancedTitleLines(titleText, titlePaint, viewWidth * 0.80f)
-                val lineHeight = titleSize * 1.18f
+                val lineHeight = titleSize * 1.22f
 
                 // 朱红印章：只在有作者时出现（用户：没作者两个都不要）
                 val rows = authorText?.let { sealRows(it) }.orEmpty()
@@ -631,7 +641,7 @@ private fun CoverTextOverlay(
                 val sealTextPaint = Paint().apply {
                     isAntiAlias = true
                     textAlign = Paint.Align.CENTER
-                    typeface = coverKaiTypeface
+                    typeface = coverTitleTypeface
                     color = Color.White.toArgb()
                     textSize = sealTextSize
                 }
@@ -641,7 +651,10 @@ private fun CoverTextOverlay(
                 }
 
                 val blockHeight = titleLines.size * lineHeight + sealGap + sealSize
-                val blockTop = ((viewHeight - blockHeight) / 2f).coerceAtLeast(viewHeight * 0.12f)
+                // 用户口径：书名压在山上（山已整体调淡，字仍是墨色所以读得清），
+                // 红日留在天上 —— 天与山各放一个元素，互不抢
+                val blockTop = (viewHeight * 0.54f - blockHeight / 2f)
+                    .coerceIn(viewHeight * 0.12f, (viewHeight * 0.95f - blockHeight))
                 val firstBaseline = blockTop + titleSize * 0.94f
                 val sealTop = blockTop + titleLines.size * lineHeight + sealGap
                 val sealLeft = (viewWidth - sealSize) / 2f

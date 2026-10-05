@@ -142,3 +142,19 @@ A1「书源管理」按用户最终口径重写完成并**装机验证**：三�
 - ❌ 别再照 prototype 的 CSS 径向色斑做：那是给浏览器大屏的，到了手机上就是两坨黄渍（用户原话「很丑」）
 - 排版：行距 12 / 段距 2 / 字距 0（用户要求「紧回去」）；字色 `#2B241C`；夜间字色 `#EFE6D9`；
   夜间背景暖褐 `#16120E` / 深蓝 `#0B1420`
+
+## 书 URL 迁移（改名连源文件 / 换源都踩这个）
+
+`books.bookUrl` 是主键，`chapters.bookUrl` 与 **`exact_chapter_page_counts.bookId`**
+都有外键指向它，且都是 `ON UPDATE NO ACTION`。所以：
+
+- **改 bookUrl 必然违反外键约束**（实测 `SQLiteConstraintException: FOREIGN KEY constraint failed`）
+  → 迁移必须在 `PRAGMA foreign_keys = OFF` 下做，搬完用 `PRAGMA foreign_key_check` 自证没有悬空引用
+  （注意 pragma 在事务里改是无效的，必须在 `beginTransaction` 之前关）
+- **别只用「列名是 bookUrl」来扫表**：`exact_chapter_page_counts` 的列叫 `bookId`。
+  正确做法是同时按外键元数据找引用表：`pragma foreign_key_list(<表>)` 里
+  `table='books' and to='bookUrl'`，然后更新其 `from` 列 —— 列名不叫 bookUrl 也不会漏
+- 还有按「书名 + 作者」聚合的表（`bookmarks`、`readRecordSession`、`readRecordDetail`），
+  改名后要同步改，否则书签与阅读时长会脱钩
+- 实现见 `help/book/LocalBookRename.kt`：文件改名 → 库搬迁 → 失败把文件改回（不留「文件在 A、库指向 B」）；
+  rename 在共享存储（FUSE）上偶发失败，已退化为「拷贝 + 删原文件」

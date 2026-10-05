@@ -143,8 +143,8 @@
     <string name="read_dur_progress">Origin: %s</string>
     <string name="book_name">Title</string>
     <string name="cover_url">Cover URL</string>
-    <string name="fixed_book_type">Lock Book Type</string>
-    <string name="fixed_book_type_summary">Do not overwrite the book type when the book updates</string>
+    <string name="fixed_book_type">Lock type</string>
+    <string name="fixed_book_type_summary">Kept when the source refreshes</string>
     <string name="book_type_label">Book Type</string>
     <string name="book_type_text">Text</string>
     <string name="book_type_audio">Audio</string>
@@ -3442,4 +3442,7 @@
     <string name="source_check_no_favorite">No common sources</string>
     <string name="source_ai_fix">AI repair</string>
     <string name="source_ai_fix_soon">AI repair is coming soon</string>
+    <string name="book_rename_source_title">Rename file too</string>
+    <string name="book_rename_source_confirm">Rename file</string>
+    <string name="book_rename_source_dismiss">Name only</string>
 </resources>

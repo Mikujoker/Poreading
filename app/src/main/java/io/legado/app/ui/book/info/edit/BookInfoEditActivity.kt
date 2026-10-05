@@ -16,10 +16,10 @@ class BookInfoEditActivity : BaseComposeActivity() {
             viewModel = viewModel,
             onBack = { finish() },
             onSave = {
-                viewModel.save {
+                viewModel.save(onSuccess = {
                     setResult(RESULT_OK)
                     finish()
-                }
+                })
             },
             onOpenCharacterList = { bookUrl ->
                 startActivity(MainActivity.createBookCharacterListIntent(this, bookUrl))

@@ -1901,8 +1901,8 @@
     <string name="firebase_enable_summary">允許應用使用 Google Firebase 進行崩潰和效能報告</string>
     <string name="firebase_enable_title">匿名統計</string>
     <string name="first_read">請先閱讀服務條款和用戶協議</string>
-    <string name="fixed_book_type">鎖定書籍類型</string>
-    <string name="fixed_book_type_summary">書籍更新時不覆蓋書籍類型</string>
+    <string name="fixed_book_type">鎖定類型</string>
+    <string name="fixed_book_type_summary">書源重新整理時不覆蓋</string>
     <string name="floating_bottom_bar">懸浮底部導航欄</string>
     <string name="floating_bottom_bar_liquid_glass">液態玻璃效果</string>
     <string name="floating_bottom_bar_liquid_glass_summary">為懸浮導航欄啟用液態玻璃高亮效果。需要模糊和 Android 13+</string>
@@ -2995,4 +2995,7 @@
     <string name="source_check_no_favorite">沒有常用書源</string>
     <string name="source_ai_fix">AI 修復</string>
     <string name="source_ai_fix_soon">AI 修復即將可用</string>
+    <string name="book_rename_source_title">同時重新命名來源檔</string>
+    <string name="book_rename_source_confirm">一起改</string>
+    <string name="book_rename_source_dismiss">只改書名</string>
 </resources>

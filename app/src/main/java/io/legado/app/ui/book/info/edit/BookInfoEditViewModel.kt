@@ -10,6 +10,7 @@ import io.legado.app.constant.BookType
 import io.legado.app.data.entities.Book
 import io.legado.app.data.repository.BookRepository
 import io.legado.app.help.book.BookHelp
+import io.legado.app.help.book.LocalBookRename
 import io.legado.app.help.book.addType
 import io.legado.app.help.book.applyTagGroupRulesForBook
 import io.legado.app.help.book.isAudio
@@ -124,11 +125,24 @@ class BookInfoEditViewModel(
         _uiState.value = _uiState.value.copy(coverUrl = book?.coverUrl ?: "")
     }
 
-    fun save(onSuccess: () -> Unit) {
+    /** 本地书且改了书名 —— 保存前该问一次「要不要连源文件一起改」。 */
+    fun shouldAskRenameSource(): Boolean {
+        val current = _uiState.value
+        val target = book ?: return false
+        return target.isLocal && current.name.trim() != target.name
+    }
+
+    fun save(onSuccess: () -> Unit, renameSourceFile: Boolean = false) {
         execute {
             val currentState = _uiState.value
             book?.let { book ->
                 val oldBook = book.copy()
+                if (renameSourceFile) {
+                    // 先把磁盘文件与库内引用一起搬过去（返回 null 表示没搬成，就只改书名）
+                    LocalBookRename.rename(oldBook, currentState.name)?.let { newUrl ->
+                        book.bookUrl = newUrl
+                    }
+                }
                 book.name = currentState.name
                 book.author = currentState.author
                 book.remark = currentState.remark
