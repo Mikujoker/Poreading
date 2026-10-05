@@ -55,6 +55,8 @@ data class BookSourceUiState(
     val importState: BaseImportUiState<BookSource> = BaseImportUiState.Idle,
     /** 当前标签页：常用 / 失效 / 全部 */
     val tab: BookSourceTab = BookSourceTab.COMMON,
+    /** 还有下一页没加载（只有「全部 + 手动排序」的分页模式才可能为真） */
+    val canLoadMore: Boolean = false,
     /** 本次会话是否跑过校验。没跑过时「失效」是空的，要给刷新入口而不是一个空列表 */
     val hasScanResult: Boolean = false,
     val isChecking: Boolean = false,
@@ -94,6 +96,9 @@ sealed interface BookSourceIntent {
     data class AddToGroup(val ids: Set<String>, val group: String) : BookSourceIntent
     data class UpdateGroup(val old: String, val new: String) : BookSourceIntent
     data class DeleteGroup(val group: String) : BookSourceIntent
+    /** 翻页：滑到底再多要一页 */
+    data object LoadMore : BookSourceIntent
+
     /** 按需校验：只扫常用书源，把失效的挑出来 */
     data object RefreshCheck : BookSourceIntent
 

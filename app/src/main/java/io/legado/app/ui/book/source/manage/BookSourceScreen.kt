@@ -82,6 +82,7 @@ import io.legado.app.ui.widget.components.rules.RuleListScaffold
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
+import io.legado.app.ui.widget.components.progressIndicator.AppContainedLoadingIndicator
 import io.legado.app.ui.widget.components.settingItem.SwitchSettingItem
 import io.legado.app.ui.widget.components.tabRow.AppTabRow
 import io.legado.app.ui.widget.components.text.AppText
@@ -709,6 +710,24 @@ fun BookSourceScreen(
                                     },
                                 )
                             })
+                    }
+                }
+
+                // 滑到底就再要一页。只有「全部 + 手动排序」有下一页，其他标签/排序一次性给全
+                if (state.canLoadMore) {
+                    item(key = "load-more", contentType = "load-more") {
+                        // key 用已加载条数：停在底部时会一页页接着取；滚开被回收就自动停
+                        LaunchedEffect(state.items.size) {
+                            onIntent(BookSourceIntent.LoadMore)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 20.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            AppContainedLoadingIndicator()
+                        }
                     }
                 }
             }

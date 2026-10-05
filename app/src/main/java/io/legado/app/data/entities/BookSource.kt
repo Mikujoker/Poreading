@@ -28,7 +28,12 @@ import kotlinx.parcelize.Parcelize
 @TypeConverters(BookSource.Converters::class)
 @Entity(
     tableName = "book_sources",
-    indices = [(Index(value = ["bookSourceUrl"], unique = false))]
+    indices = [
+        (Index(value = ["bookSourceUrl"], unique = false)),
+        // 书源管理翻页靠这两个索引：没有它们，order by customOrder + limit 也要全表扫
+        (Index(value = ["customOrder"], unique = false)),
+        (Index(value = ["isFavorite", "customOrder"], unique = false)),
+    ]
 )
 data class BookSource(
     // 地址，包括 http/https

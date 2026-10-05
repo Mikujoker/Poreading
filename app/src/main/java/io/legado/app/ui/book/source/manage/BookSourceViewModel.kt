@@ -153,22 +153,62 @@ class BookSourceViewModel(
         }
         .distinctUntilChanged()
 
+    /** 常用集合（失效是它的子集）。集合小 + 复合索引，切到「常用/失效」是秒开。 */
+    private val favorites = repository.flowFavorites()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 已经加载了多少行；「全部」标签滑到底就再加一页。 */
+    private val pageLimit = MutableStateFlow(BookSourcePageQuery.PAGE_SIZE)
+
+    /** 「全部」+ 手动排序时走分页；筛选/搜索/排序都在 SQL 里做完了。 */
+    private val pagedSources: Flow<List<BookSourcePart>> = combine(
+        sourceFilter,
+        sourceSort,
+        pageLimit,
+    ) { filter, sort, limit ->
+        BookSourcePageQuery.build(
+            filter = filter.name,
+            keyword = filter.query,
+            sort = sort.sort,
+            ascending = sort.ascending,
+            limit = limit,
+        )
+    }.flatMapLatest { query -> repository.pageSources(query) }
+
     /**
-     * 全量书源快照，列表与「刷新」共用同一次全表查询。
-     *
-     * 校验进行中刻意不订阅：校验每写完一条，Room 就会让这个 119 MB 的全表查询重跑一遍
-     * （PC 上单次数秒），几千条连着写会把查询线程压死。校验期间用户看的是进度，
-     * 列表沿用手上最后一份快照就够了；跑完自动恢复订阅并刷新一次。
-     * null 表示第一份快照还没到，用来把「还在加载」和「真的没有书源」区分开。
+     * 列表的数据源按标签/排序切换，下游的筛选、排序、覆盖值逻辑一个字都不用改：
+     * - 常用/失效：只读常用那一小撮（失效是它的子集，在内存里减掉）
+     * - 全部 + 手动排序：分页
+     * - 其余排序与「按域名分组显示」：仍旧整表读（和分页前一样，没变快也没变慢）
      */
-    private val allSources: StateFlow<List<BookSourcePart>?> = checkGateway.state
+    private val listSource: Flow<List<BookSourcePart>> = combine(sourceFilter, sourceSort) {
+            filter,
+            sort,
+        ->
+        filter.tab to sort
+    }.distinctUntilChanged()
+        .flatMapLatest { (tab, sort) ->
+            when {
+                tab != BookSourceTab.ALL -> favorites
+                sort.sort != BookSourceSort.Default || sort.groupByDomain -> repository.flowAll()
+                else -> pagedSources
+            }
+        }
+
+    /**
+     * 校验进行中刻意不订阅：校验每写完一条，Room 就会让查询重跑一遍，
+     * 几千条连着写会把查询线程压死。校验期间用户看的是进度，列表沿用手上最后一份即可；
+     * 跑完自动恢复订阅并刷新一次。
+     * null 表示第一份还没到，用来把「还在加载」和「真的没有书源」区分开。
+     */
+    private val listSources: StateFlow<List<BookSourcePart>?> = checkGateway.state
         .map { it.isRunning }
         .distinctUntilChanged()
-        .flatMapLatest { running -> if (running) emptyFlow() else repository.flowAll() }
+        .flatMapLatest { running -> if (running) emptyFlow() else listSource }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val importedOrFilteredItems: Flow<List<BookSourcePart>> = combine(
-        allSources,
+        listSources,
         localItems,
         sourceFilter,
         failedIds,
@@ -255,10 +295,14 @@ class BookSourceViewModel(
             sort = configuration.sort.sort,
             sortAscending = configuration.sort.ascending,
             groupByDomain = configuration.sort.groupByDomain,
+            canLoadMore = configuration.filter.tab == BookSourceTab.ALL &&
+                configuration.sort.sort == BookSourceSort.Default &&
+                !configuration.sort.groupByDomain &&
+                visible.size >= pageLimit.value,
             interaction = io.legado.app.ui.widget.components.list.InteractionState(
                 isSearchMode = configuration.isSearchMode,
                 // 第一份快照还没到：把「加载中」和「真的没有书源」区分开
-                isLoading = allSources.value == null,
+                isLoading = listSources.value == null,
             ),
         )
     }.flowOn(Dispatchers.Default)
@@ -326,7 +370,7 @@ class BookSourceViewModel(
             }
 
             is BookSourceIntent.SetSearchQuery -> {
-                localItems.value = null; searchKey.value = intent.query
+                localItems.value = null; resetPaging(); searchKey.value = intent.query
             }
 
             is BookSourceIntent.SetSelection -> selectedIds.value = intent.ids
@@ -335,25 +379,25 @@ class BookSourceViewModel(
             }
 
             is BookSourceIntent.SetFilter -> {
-                localItems.value = null; filter.value = intent.filter
+                localItems.value = null; resetPaging(); filter.value = intent.filter
             }
 
             is BookSourceIntent.SetTab -> {
-                localItems.value = null; tab.value = intent.tab
+                localItems.value = null; resetPaging(); tab.value = intent.tab
             }
 
             is BookSourceIntent.ToggleFavorite -> setFavorite(intent.id)
 
             is BookSourceIntent.SetSort -> {
-                localItems.value = null; sort.value = intent.sort
+                localItems.value = null; resetPaging(); sort.value = intent.sort
             }
 
             BookSourceIntent.ToggleSortDirection -> {
-                localItems.value = null; sortAscending.update { !it }
+                localItems.value = null; resetPaging(); sortAscending.update { !it }
             }
 
             BookSourceIntent.ToggleGroupByDomain -> {
-                localItems.value = null; groupByDomain.update { !it }
+                localItems.value = null; resetPaging(); groupByDomain.update { !it }
             }
 
             is BookSourceIntent.SetEnabled -> setEnabled(intent.id, intent.enabled)
@@ -372,6 +416,7 @@ class BookSourceViewModel(
             is BookSourceIntent.AddToGroup -> updateGroups(intent.ids, intent.group, true)
             is BookSourceIntent.UpdateGroup -> updateGroup(intent.old, intent.new)
             is BookSourceIntent.DeleteGroup -> updateGroup(intent.group, "")
+            BookSourceIntent.LoadMore -> pageLimit.update { it + BookSourcePageQuery.PAGE_SIZE }
             BookSourceIntent.RefreshCheck -> refreshCheck()
 
             is BookSourceIntent.UpdateCheckOptions -> viewModelScope.launch {
@@ -424,6 +469,11 @@ class BookSourceViewModel(
         }
     }
 
+    /** 换标签/改筛选/换排序时把分页收回第一页。 */
+    private fun resetPaging() {
+        pageLimit.value = BookSourcePageQuery.PAGE_SIZE
+    }
+
     private fun launch(block: suspend () -> Unit) =
         viewModelScope.launch(Dispatchers.IO) { block() }
 
@@ -433,7 +483,7 @@ class BookSourceViewModel(
             runCatching {
                 repository.setEnabled(id, enabled)
                 // 等共享快照确认，别再单独开一次全表查询（那要好几秒）
-                allSources.first { sources ->
+                listSources.first { sources ->
                     sources?.firstOrNull { it.bookSourceUrl == id }?.enabled == enabled
                 }
             }
@@ -448,29 +498,33 @@ class BookSourceViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 repository.setFavorite(ids, favorite)
-                allSources.first { sources ->
-                    sources != null && ids.all { id ->
-                        sources.firstOrNull { it.bookSourceUrl == id }?.isFavorite == favorite
-                    }
-                }
+                awaitFavorite(ids, favorite)
             }.onFailure { favoriteOverrides.update { it - ids } }
             favoriteOverrides.update { it - ids }
+        }
+    }
+
+    /** 等共享快照确认星标已落库。取消常用后那一行会从常用集合里消失，也算确认。 */
+    private suspend fun awaitFavorite(ids: Set<String>, favorite: Boolean) {
+        listSources.first { sources ->
+            sources != null && ids.all { id ->
+                val row = sources.firstOrNull { it.bookSourceUrl == id }
+                row?.isFavorite == favorite || (!favorite && row == null)
+            }
         }
     }
 
     /** 星标切换：先乐观置位，等快照确认；写库失败就把覆盖值摘掉，星标回退。 */
     private fun setFavorite(id: String) {
         val current = favoriteOverrides.value[id]
-            ?: allSources.value?.firstOrNull { it.bookSourceUrl == id }?.isFavorite
+            ?: listSources.value?.firstOrNull { it.bookSourceUrl == id }?.isFavorite
             ?: false
         val next = !current
         favoriteOverrides.update { it + (id to next) }
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 repository.setFavorite(id, next)
-                allSources.first { sources ->
-                    sources?.firstOrNull { it.bookSourceUrl == id }?.isFavorite == next
-                }
+                awaitFavorite(setOf(id), next)
             }.onFailure { favoriteOverrides.update { it - id } }
         }
     }
@@ -482,8 +536,8 @@ class BookSourceViewModel(
     private fun refreshCheck() {
         if (checkGateway.state.value.isRunning) return
         viewModelScope.launch {
-            val snapshot = allSources.first { it != null }.orEmpty()
-            val ids = snapshot
+            // 用常用集合，不能用当前标签的数据源：「全部」标签下那只有已加载的一页
+            val ids = favorites.value
                 .filter { favoriteOverrides.value[it.bookSourceUrl] ?: it.isFavorite }
                 .map { it.bookSourceUrl }
                 .toSet()

@@ -5,8 +5,10 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.sqlite.db.SupportSQLiteQuery
 import io.legado.app.constant.AppPattern
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.BookSourcePart
@@ -23,6 +25,14 @@ interface BookSourceDao {
 
     @Query("select * from book_sources_part order by customOrder asc")
     fun flowAll(): Flow<List<BookSourcePart>>
+
+    /** 常用集合（失效是它的子集）。靠 (isFavorite, customOrder) 索引，秒回。 */
+    @Query("select * from book_sources_part where isFavorite = 1 order by customOrder asc")
+    fun flowFavorites(): Flow<List<BookSourcePart>>
+
+    /** 「全部」标签翻页用；查询由 [io.legado.app.ui.book.source.manage.BookSourcePageQuery] 拼。 */
+    @RawQuery(observedEntities = [BookSource::class])
+    fun pageSources(query: SupportSQLiteQuery): Flow<List<BookSourcePart>>
 
     /**
      * 规则是否为空。sources 里规则以 JSON 文本存储，全空时序列化为 "{}"，

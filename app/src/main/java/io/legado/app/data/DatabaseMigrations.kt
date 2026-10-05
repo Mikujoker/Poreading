@@ -21,7 +21,7 @@ object DatabaseMigrations {
             migration_35_36, migration_36_37, migration_37_38, migration_38_39,
             migration_39_40, migration_40_41, migration_41_42, migration_42_43,
             migration_82_83, migration_98_99, migration_99_100,
-            migration_102_103, migration_107_108,
+            migration_102_103, migration_107_108, migration_108_109,
         )
     }
 
@@ -680,6 +680,21 @@ object DatabaseMigrations {
                     "    (loginUrl is not null and trim(loginUrl) <> '') hasLoginUrl, lastUpdateTime, respondTime, weight, \n" +
                     "    (exploreUrl is not null and trim(exploreUrl) <> '') hasExploreUrl, isFavorite \n" +
                     "    from book_sources"
+            )
+        }
+    }
+
+    private val migration_108_109 = object : Migration(108, 109) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // 书源管理翻页：119 MB 的表没有索引时，order by customOrder + limit 200 也要全表扫
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_book_sources_customOrder` " +
+                    "ON `book_sources` (`customOrder`)"
+            )
+            // 「常用」标签走这个复合索引
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_book_sources_isFavorite_customOrder` " +
+                    "ON `book_sources` (`isFavorite`, `customOrder`)"
             )
         }
     }

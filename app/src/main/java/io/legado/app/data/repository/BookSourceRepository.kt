@@ -4,6 +4,7 @@ import io.legado.app.data.dao.BookSourceDao
 import io.legado.app.data.entities.SourceRuleFlags
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.BookSourcePart
+import androidx.sqlite.db.SupportSQLiteQuery
 import io.legado.app.help.source.SourceHelp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +18,14 @@ class BookSourceRepository(private val bookSourceDao: BookSourceDao) {
 
     fun flowEnabled(): Flow<List<BookSourcePart>> {
         return bookSourceDao.flowEnabled()
+    }
+
+    fun flowFavorites(): Flow<List<BookSourcePart>> {
+        return bookSourceDao.flowFavorites()
+    }
+
+    fun pageSources(query: SupportSQLiteQuery): Flow<List<BookSourcePart>> {
+        return bookSourceDao.pageSources(query)
     }
 
     fun flowRuleFlags(): Flow<List<SourceRuleFlags>> {
