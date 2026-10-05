@@ -336,12 +336,10 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
     internal var activeMangaKeyHandler: ((Int) -> Boolean)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        io.legado.app.utils.StartupTrace.mark("MainActivity.onCreate 开始")
         installSplashScreen()
         shouldApplyDefaultToRead = savedInstanceState == null
         restoredReadBookRoute = savedInstanceState?.restoreReadBookRoute()
         super.onCreate(savedInstanceState)
-        io.legado.app.utils.StartupTrace.mark("MainActivity.super.onCreate 结束")
 
         if (checkStartupRoute()) return
         val shouldAutoCheckUpdate = startupUpdateCheckGate.consume(
@@ -415,7 +413,6 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
     @OptIn(ExperimentalSharedTransitionApi::class)
     @Composable
     override fun Content() {
-        io.legado.app.utils.StartupTrace.mark("MainActivity.Content 首次合成")
         val orientation = resources.configuration.orientation
         val smallestWidthDp = resources.configuration.smallestScreenWidthDp
         val configuration = LocalAppUiConfiguration.current

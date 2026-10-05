@@ -358,17 +358,8 @@ class BookshelfViewModel(
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
 
-    private var shelfDataMarked = false
-
     val booksFlow: Flow<List<BookUiItem>> = selectedGroupBooksFlow
         .map { it.books }
-        .onEach {
-            // [启动计时] 临时埋点：切开「查询慢」还是「合成慢」
-            if (!shelfDataMarked && it.isNotEmpty()) {
-                shelfDataMarked = true
-                io.legado.app.utils.StartupTrace.mark("书架数据首次就绪（${it.size} 本）")
-            }
-        }
         .distinctUntilChanged()
 
     @OptIn(ExperimentalCoroutinesApi::class)
