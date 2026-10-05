@@ -81,6 +81,7 @@ import io.legado.app.domain.model.settings.ReadAloudTimerMode
 import io.legado.app.ui.book.readaloud.ReadAloudTimerConfig
 import io.legado.app.ui.book.readaloud.ReadAloudTimerSheet
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.MotionSpec
 import io.legado.app.ui.theme.hazeStyle.HazeLegado
 import io.legado.app.ui.util.rememberBlurBackdrop
 import io.legado.app.ui.widget.components.AppScaffold
@@ -585,7 +586,7 @@ private fun ChapterTextPage(
             listState.animateScrollBy(
                 value = scrollDistance,
                 animationSpec = tween(
-                    durationMillis = 520,
+                    durationMillis = MotionSpec.DrawerMs,
                     easing = FastOutSlowInEasing,
                 ),
             )

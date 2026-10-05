@@ -212,6 +212,13 @@ class App : Application(), SingletonImageLoader.Factory {
                 }
         }
         Coroutine.async {
+            // 预热封面毛笔字体（4MB，别让它卡在书架首帧）
+            runCatching {
+                io.legado.app.ui.widget.components.image.cover.warmUpCoverTitleTypeface()
+                io.legado.app.utils.StartupTrace.mark("封面字体预热完成（后台）")
+            }
+        }
+        Coroutine.async {
             LogUtils.init(this@App)
             LogUtils.d("App", "onCreate")
             LogUtils.logDeviceInfo()

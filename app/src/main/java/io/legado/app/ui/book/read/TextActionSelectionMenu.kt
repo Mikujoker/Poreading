@@ -75,6 +75,7 @@ import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
 import io.legado.app.R
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.MotionSpec
 import io.legado.app.ui.theme.ProvideAppDensity
 import io.legado.app.ui.widget.components.card.NormalCard
 import io.legado.app.ui.widget.components.text.AppText
@@ -189,12 +190,12 @@ fun TextActionSelectionMenu(
                 } else {
                     val quickMenuScale by animateFloatAsState(
                         targetValue = if (showMoreMenu) 0.96f else 1f,
-                        animationSpec = tween(durationMillis = 400),
+                        animationSpec = tween(durationMillis = MotionSpec.EnterMs, easing = MotionSpec.EaseOut),
                         label = "quickMenuScale"
                     )
                     val quickMenuAlpha by animateFloatAsState(
                         targetValue = if (showMoreMenu) 0.82f else 1f,
-                        animationSpec = tween(durationMillis = 360),
+                        animationSpec = tween(durationMillis = MotionSpec.ExitMs, easing = MotionSpec.EaseOut),
                         label = "quickMenuAlpha"
                     )
 

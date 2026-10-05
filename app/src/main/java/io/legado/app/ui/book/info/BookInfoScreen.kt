@@ -116,6 +116,7 @@ import io.legado.app.help.webView.WebJsExtensions
 import io.legado.app.ui.association.OnLineImportActivity
 import io.legado.app.ui.main.homepage.modules.BannerModule
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.MotionSpec
 import io.legado.app.ui.theme.LocalHazeState
 import io.legado.app.ui.theme.LocalLegadoThemeColors
 import io.legado.app.ui.theme.ProvideColorSchemeOverride
@@ -629,7 +630,7 @@ private fun BookInfoColorTheme(
 ) {
     val baseTheme = LocalLegadoThemeColors.current
     val animationSpec = tween<Color>(
-        durationMillis = 400,
+        durationMillis = MotionSpec.EnterMs,
         easing = FastOutSlowInEasing,
     )
     val targetColorScheme = theme?.colorScheme ?: baseTheme.colorScheme

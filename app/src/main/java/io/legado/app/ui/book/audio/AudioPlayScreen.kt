@@ -80,6 +80,7 @@ import io.legado.app.constant.Status
 import io.legado.app.domain.model.PlaybackTimer
 import io.legado.app.model.AudioPlay
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.theme.MotionSpec
 import io.legado.app.ui.theme.hazeStyle.HazeLegado
 import io.legado.app.ui.util.rememberBlurBackdrop
 import io.legado.app.ui.widget.components.AppScaffold
@@ -525,7 +526,7 @@ private fun AudioLyricPage(
         if (abs(scrollDistance) > 1f) {
             listState.animateScrollBy(
                 value = scrollDistance,
-                animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing),
+                animationSpec = tween(durationMillis = MotionSpec.DrawerMs, easing = MotionSpec.EaseOut),
             )
         }
     }

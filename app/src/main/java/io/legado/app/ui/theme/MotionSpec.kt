@@ -39,6 +39,9 @@ object MotionSpec {
     /** 大面板、抽屉 */
     const val DrawerMs = 280
 
+    /** 退场：比入场快一档，避免拖尾 */
+    const val ExitMs = 160
+
     /** 多项错峰步长（30~80ms 区间内取中） */
     const val StaggerMs = 40
 
