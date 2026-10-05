@@ -163,6 +163,14 @@ class MangaReaderInteractionTest {
         assertTrue(failed.key.contains("12"))
     }
 
+    private companion object {
+        /** 一页在列表里的固定布局高度；几何判定只看相对关系。 */
+        const val PAGE_HEIGHT = 1787
+
+        /** 章节过渡卡片的固定布局高度。 */
+        const val TRANSITION_HEIGHT = 250
+    }
+
     private fun page(index: Int, chapter: Int = 0) = MangaReaderItemUi.Page(
         key = "p$index",
         imageUrl = "url$index",
@@ -272,7 +280,7 @@ class MangaReaderInteractionTest {
     }
 
     @Test
-    fun `webtoon enters later chapter at its first visible page after transition leaves viewport`() {
+    fun `webtoon focuses the page under the reading line past a chapter boundary`() {
         val items = listOf(
             page(8, chapter = 20),
             MangaReaderItemUi.ChapterTransition(
@@ -292,14 +300,19 @@ class MangaReaderInteractionTest {
             2,
             mangaWebtoonFocusedPageIndex(
                 items = items,
-                visibleItemIndices = listOf(2, 3, 4),
+                visibleItems = listOf(
+                    MangaWebtoonVisibleItem(2, offset = 0, size = PAGE_HEIGHT),
+                    MangaWebtoonVisibleItem(3, offset = PAGE_HEIGHT, size = PAGE_HEIGHT),
+                    MangaWebtoonVisibleItem(4, offset = PAGE_HEIGHT * 2, size = PAGE_HEIGHT),
+                ),
                 currentChapterIndex = 20,
+                readingLine = PAGE_HEIGHT / 2,
             ),
         )
     }
 
     @Test
-    fun `webtoon keeps current chapter page while next chapter page is also visible`() {
+    fun `webtoon keeps the current chapter page while its transition card sits on the reading line`() {
         val items = listOf(
             page(7, chapter = 20),
             page(8, chapter = 20),
@@ -314,20 +327,29 @@ class MangaReaderInteractionTest {
             page(0, chapter = 21),
         )
 
-        // 当前章最后一页和下一章第一页同时可见时，焦点必须留在当前章，
-        // 否则 UI 会先把相邻章页写成当前页，图片高度变化后再触发来回切章。
+        // 过渡卡片还压在阅读线上时，焦点必须留在当前章，否则 UI 会先把相邻章页写成当前页，
+        // 图片高度变化后再触发来回切章。
         assertEquals(
             1,
             mangaWebtoonFocusedPageIndex(
                 items = items,
-                visibleItemIndices = listOf(1, 2, 3),
+                visibleItems = listOf(
+                    MangaWebtoonVisibleItem(1, offset = 0, size = PAGE_HEIGHT),
+                    MangaWebtoonVisibleItem(2, offset = PAGE_HEIGHT, size = TRANSITION_HEIGHT),
+                    MangaWebtoonVisibleItem(
+                        3,
+                        offset = PAGE_HEIGHT + TRANSITION_HEIGHT,
+                        size = PAGE_HEIGHT,
+                    ),
+                ),
                 currentChapterIndex = 20,
+                readingLine = PAGE_HEIGHT / 2,
             ),
         )
     }
 
     @Test
-    fun `webtoon enters earlier chapter at its last visible page`() {
+    fun `webtoon focuses the earlier chapter page once it reaches the reading line`() {
         val items = listOf(
             page(7, chapter = 20),
             page(8, chapter = 20),
@@ -346,14 +368,23 @@ class MangaReaderInteractionTest {
             1,
             mangaWebtoonFocusedPageIndex(
                 items = items,
-                visibleItemIndices = listOf(0, 1, 2),
+                visibleItems = listOf(
+                    MangaWebtoonVisibleItem(0, offset = -700, size = PAGE_HEIGHT),
+                    MangaWebtoonVisibleItem(1, offset = -700 + PAGE_HEIGHT, size = PAGE_HEIGHT),
+                    MangaWebtoonVisibleItem(
+                        2,
+                        offset = -700 + PAGE_HEIGHT * 2,
+                        size = TRANSITION_HEIGHT,
+                    ),
+                ),
                 currentChapterIndex = 21,
+                readingLine = 1500,
             ),
         )
     }
 
     @Test
-    fun `webtoon waits for transition card to leave viewport before promoting loaded chapter`() {
+    fun `webtoon defers promotion while the transition card still holds the reading line`() {
         val items = listOf(
             page(8, chapter = 20),
             MangaReaderItemUi.ChapterTransition(
@@ -367,20 +398,60 @@ class MangaReaderInteractionTest {
             page(0, chapter = 21),
         )
 
-        // 下一章刚插入列表，过渡卡片还在可视区域：不能因布局更新自动切章。
+        // 下一章刚插入列表，过渡卡片还压在阅读线上：不能因布局更新自动切章。
         assertNull(
             mangaWebtoonFocusedPageIndex(
                 items = items,
-                visibleItemIndices = listOf(1, 2),
+                visibleItems = listOf(
+                    MangaWebtoonVisibleItem(1, offset = 0, size = TRANSITION_HEIGHT),
+                    MangaWebtoonVisibleItem(2, offset = TRANSITION_HEIGHT, size = PAGE_HEIGHT),
+                ),
                 currentChapterIndex = 20,
+                readingLine = PAGE_HEIGHT / 2,
             ),
         )
         assertEquals(
             2,
             mangaWebtoonFocusedPageIndex(
                 items = items,
-                visibleItemIndices = listOf(2),
+                visibleItems = listOf(
+                    MangaWebtoonVisibleItem(2, offset = -300, size = PAGE_HEIGHT),
+                ),
                 currentChapterIndex = 20,
+                readingLine = PAGE_HEIGHT / 2,
+            ),
+        )
+    }
+
+    @Test
+    fun `webtoon advances a one page chapter once the next page reaches the reading line`() {
+        // PDF 是「一页一章」：窗口里只有当前页与下一页，LazyColumn 滚到底也只能滚到
+        // 2 * PAGE_HEIGHT - 一屏，当前页底边始终留在视口里，所以旧规则（当前章整章滚出
+        // 视口才切章）永远不成立 —— 真机表现就是第 1 页翻不到第 2 页。
+        val items = listOf(page(0, chapter = 0), page(0, chapter = 1))
+        val visible = listOf(
+            MangaWebtoonVisibleItem(0, offset = 0, size = PAGE_HEIGHT),
+            MangaWebtoonVisibleItem(1, offset = PAGE_HEIGHT, size = PAGE_HEIGHT),
+        )
+
+        // 刚打开：阅读线还在第 1 页上
+        assertEquals(
+            0,
+            mangaWebtoonFocusedPageIndex(
+                items = items,
+                visibleItems = visible,
+                currentChapterIndex = 0,
+                readingLine = 1300,
+            ),
+        )
+        // 滚到底：阅读线落到第 2 页，而第 1 页底边 1787 仍在视口里（只滚了 974）
+        assertEquals(
+            1,
+            mangaWebtoonFocusedPageIndex(
+                items = items,
+                visibleItems = visible,
+                currentChapterIndex = 0,
+                readingLine = 2274,
             ),
         )
     }

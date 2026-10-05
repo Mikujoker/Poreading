@@ -59,44 +59,50 @@ internal fun nextPageItemIndex(
     return null
 }
 
+/** 条漫里一个可见条目在列表坐标系里的位置（像素）。 */
+internal data class MangaWebtoonVisibleItem(
+    val index: Int,
+    val offset: Int,
+    val size: Int,
+)
+
 /**
- * Chooses the page that represents a Webtoon viewport.
+ * Chooses the page that represents a Webtoon viewport: the page under the viewport's reading
+ * line, i.e. the page actually being read.
  *
- * Normally the last visible page is a useful reading-progress anchor. At a chapter boundary it
- * is not: a number of short pages from the adjacent chapter can be visible at once, so using the
- * last one promotes the session directly to that chapter's final visible page. Once the current
- * chapter has left the viewport, use the first visible page when entering a later chapter and
- * the last visible page when entering an earlier one. Those are the pages adjacent to the
- * boundary in reading order. If that boundary's transition card is still visible, defer the
- * promotion: adjacent content may only just have been appended after loading, without a user
- * scroll past the card.
+ * 旧规则是「当前章只要还有任何一页可见就用它」，隐含「一章有很多页、整章总能滚出视口」。
+ * PDF 是「一页一章」：前后邻章各只有一页，3 页内容减掉一屏后最多只能滚到当前页底边之下
+ * 一点点，当前页必然还露在视口里 → 永远切不到下一章（真机表现：第 1 页翻不到第 2 页）。
+ * 改成几何判定后，一页一章与多页章走同一条规则，进度也落在真正正在读的那页上。
+ *
+ * 阅读线落在非页项（章节过渡卡片）上时退回当前章的可见页：卡片还压在阅读线上，说明相邻章
+ * 只是刚补进来，不算用户翻过去了。
  */
 internal fun mangaWebtoonFocusedPageIndex(
     items: List<MangaReaderItemUi>,
-    visibleItemIndices: List<Int>,
+    visibleItems: List<MangaWebtoonVisibleItem>,
     currentChapterIndex: Int,
+    readingLine: Int,
 ): Int? {
-    val visiblePages = visibleItemIndices.mapNotNull { index ->
-        (items.getOrNull(index) as? MangaReaderItemUi.Page)?.let { index to it }
+    val visiblePages = visibleItems.mapNotNull { visible ->
+        (items.getOrNull(visible.index) as? MangaReaderItemUi.Page)?.let { visible to it }
     }
     if (visiblePages.isEmpty()) return null
-    // 当前章仍可见时只更新当前章内的底部页。若直接取整个视口的最后一页，章节边界上
-    // 会把相邻章第一页当成当前页写回 UI；随后图片尺寸变化又可能报告另一章，产生来回切章。
-    visiblePages.lastOrNull { (_, page) -> page.chapterIndex == currentChapterIndex }
-        ?.let { return it.first }
-    val focusedPage = when {
-        visiblePages.first().second.chapterIndex > currentChapterIndex -> visiblePages.first().first
-        visiblePages.last().second.chapterIndex < currentChapterIndex -> visiblePages.last().first
-        else -> visiblePages.last().first
-    }
-    val focusedChapterIndex = (items[focusedPage] as MangaReaderItemUi.Page).chapterIndex
+    val focusedPage = visiblePages.firstOrNull { (visible, _) ->
+        readingLine >= visible.offset && readingLine < visible.offset + visible.size
+    } ?: visiblePages.lastOrNull { (_, page) -> page.chapterIndex == currentChapterIndex }
+        ?: visiblePages.minByOrNull { (visible, _) ->
+            kotlin.math.abs(visible.offset + visible.size / 2 - readingLine)
+        }
+        ?: return null
+    val focusedChapterIndex = focusedPage.second.chapterIndex
     // 相邻章节从 Loading 变 Ready 时，新的首/末页会被追加到仍停在过渡卡片上的视口。
     // 这不是用户继续翻过章节边界，不能因此直接切章；等过渡卡片离开视口后再上报。
-    val transitionStillVisible = visibleItemIndices.any { index ->
-        (items.getOrNull(index) as? MangaReaderItemUi.ChapterTransition)
+    val transitionStillVisible = visibleItems.any { visible ->
+        (items.getOrNull(visible.index) as? MangaReaderItemUi.ChapterTransition)
             ?.targetChapterIndex == focusedChapterIndex
     }
-    return focusedPage.takeUnless { transitionStillVisible }
+    return focusedPage.first.index.takeUnless { transitionStillVisible }
 }
 
 /** A programmatic position restore must not be overwritten by the old viewport's first callback. */
@@ -162,7 +168,7 @@ internal fun mangaImagePrefetchIndex(scrollMode: Int, current: Int, visible: Int
 
 /** 列表可同时含前后章节；只准备实际当前章，当前页及附近页先执行，剩余页持续排队。 */
 internal fun mangaChapterPrefetchPages(
-    items: List<MangaReaderItemUi>, current: Int, fallbackChapter: Int,
+    items: List<MangaReaderItemUi>, current: Int, fallbackChapter: Int, limit: Int = Int.MAX_VALUE,
 ): List<MangaReaderItemUi.Page> {
     val visible = items.getOrNull(current) as? MangaReaderItemUi.Page
     val chapter = visible?.chapterIndex ?: fallbackChapter
@@ -170,7 +176,7 @@ internal fun mangaChapterPrefetchPages(
         items.filterIsInstance<MangaReaderItemUi.Page>().filter { it.chapterIndex == chapter }
     val anchor = visible?.pageIndex ?: pages.firstOrNull()?.pageIndex ?: return emptyList()
     return pages.sortedWith(compareBy<MangaReaderItemUi.Page> { kotlin.math.abs(it.pageIndex - anchor) }
-        .thenBy { if (it.pageIndex >= anchor) 0 else 1 })
+        .thenBy { if (it.pageIndex >= anchor) 0 else 1 }).take(limit)
 }
 
 /** 缩放后的滚动偏移保留手势下的原图坐标；未知占位和固定高度章节项不按图片缩放。 */

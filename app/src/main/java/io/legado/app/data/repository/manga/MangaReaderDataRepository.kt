@@ -21,6 +21,7 @@ import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.isLocal
 import io.legado.app.help.book.isLocalModified
+import io.legado.app.help.book.isPdf
 import io.legado.app.help.book.readSimulating
 import io.legado.app.help.book.simulatedTotalChapterNum
 import io.legado.app.help.source.getSourceType
@@ -29,6 +30,7 @@ import io.legado.app.model.cache.CacheDownloadRequest
 import io.legado.app.model.cache.CacheDownloadSource
 import io.legado.app.model.cache.ChapterSelection
 import io.legado.app.model.localBook.LocalBook
+import io.legado.app.model.localBook.PdfFile
 import io.legado.app.model.webBook.WebBook
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -83,7 +85,11 @@ class MangaReaderDataRepository(
             }
         }
         var chapterCount = database.bookChapterDao.getChapterCount(book.bookUrl)
-        if (chapterCount == 0 || book.isLocalModified()) {
+        // PDF 的章节表只是「页级脚手架」（目录与进度都按页走）。结构换过之后行数与页数对不上，
+        // 得按新结构重建；否则目录条目、进度百分比都会错位（旧版留过「一段十页」的表）。
+        val stalePdfChapters = book.isLocal && book.isPdf &&
+                chapterCount > 0 && chapterCount != PdfFile.getPageCount(book)
+        if (chapterCount == 0 || book.isLocalModified() || stalePdfChapters) {
             if (book.isLocal) {
                 val chapters = if (localMangaLoader.supports(book)) {
                     localMangaLoader.chapters(book).also {
@@ -117,6 +123,16 @@ class MangaReaderDataRepository(
             book.simulatedTotalChapterNum()
         } else chapterCount
         val safeChapter = book.durChapterIndex.coerceIn(0, (simulatedCount - 1).coerceAtLeast(0))
+        // PDF 整本当作一章：会话里只有第 0 章，所有页都挂在这一章下。阅读位置仍按页存在
+        // durChapterIndex 上——书架进度是 (durChapterIndex + 1) / totalChapterNum，章号=页号才对得上。
+        val singleChapterPdf = book.isPdf
+        val readerChapterCount = if (singleChapterPdf) 1 else simulatedCount
+        val readerChapterIndex = if (singleChapterPdf) 0 else safeChapter
+        val readerPageIndex = if (singleChapterPdf) {
+            book.durChapterIndex.coerceAtLeast(0)
+        } else {
+            book.durChapterPos.coerceAtLeast(0)
+        }
         val newerProgress = if (!chapterChanged) findNewerProgress(book) else null
         return OpenedMangaBook(
             book = MangaBookState(
@@ -134,9 +150,9 @@ class MangaReaderDataRepository(
                 isLocal = book.isLocal,
                 chapterTitles = database.bookChapterDao.getChapterList(book.bookUrl).map { it.title },
             ),
-            chapterIndex = safeChapter,
-            pageIndex = book.durChapterPos.coerceAtLeast(0),
-            chapterCount = simulatedCount,
+            chapterIndex = readerChapterIndex,
+            pageIndex = readerPageIndex,
+            chapterCount = readerChapterCount,
             newerProgress = newerProgress,
         )
     }
@@ -174,10 +190,12 @@ class MangaReaderDataRepository(
 
     override suspend fun persistProgress(bookUrl: String, chapterIndex: Int, pageIndex: Int) {
         val book = database.bookDao.getBook(bookUrl) ?: return
-        book.durChapterIndex = chapterIndex
+        // PDF 整本是一章，会话里的章号恒为 0；章号那一栏仍存页号，见 openBook
+        val progressChapter = if (book.isPdf) pageIndex else chapterIndex
+        book.durChapterIndex = progressChapter
         book.durChapterPos = pageIndex
         book.durChapterTime = System.currentTimeMillis()
-        database.bookChapterDao.getChapter(bookUrl, chapterIndex)?.let {
+        database.bookChapterDao.getChapter(bookUrl, progressChapter)?.let {
             book.durChapterTitle = it.title
         }
         database.bookDao.update(book)

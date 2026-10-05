@@ -130,7 +130,13 @@ class MangaReaderViewModel(
                 pendingExplicitChapterIndex = intent.progress.durChapterIndex
                 executeSession(MangaSessionCommand.ApplyProgress(intent.progress.toMangaProgress()))
             }
-            is MangaReaderIntent.OpenChapter -> openChapter(intent.chapterIndex, intent.pageIndex)
+            is MangaReaderIntent.OpenChapter ->
+                // PDF 整本是一章：章节表里的一行就是「第 N 页」，会话里没有第 N 章可开，改成跳页
+                if (pdfSinglePageBook()) {
+                    seekToPage(intent.chapterIndex.coerceAtLeast(intent.pageIndex))
+                } else {
+                    openChapter(intent.chapterIndex, intent.pageIndex)
+                }
             is MangaReaderIntent.ChangeSourceBook -> launchAction {
                 showLoading()
                 val currentUrl = requireNotNull(readerSession.state.value.book?.bookUrl)
@@ -452,6 +458,8 @@ class MangaReaderViewModel(
         val existingPages = _uiState.value.pages
             .filterIsInstance<MangaReaderItemUi.Page>()
             .associateBy(MangaReaderItemUi.Page::key)
+        // PDF 是「一页一章」：每翻一页都等于换章
+        val pdfSinglePage = book.bookUrl.endsWith(".pdf", true)
         fun chapterItems(chapter: io.legado.app.domain.model.manga.MangaChapterContent) =
             if (chapter.isVolume && chapter.pages.isEmpty()) {
                 listOf(
@@ -472,7 +480,12 @@ class MangaReaderViewModel(
                         chapterCount = session.chapterCount,
                         pageIndex = page.pageIndex,
                         pageCount = page.pageCount,
-                        chapterName = chapter.chapterTitle,
+                        // PDF 整本一章，章节表里的一行就是「第 N 页」；浮层按页显示才对
+                        chapterName = if (pdfSinglePage) {
+                            book.chapterTitles.getOrNull(page.pageIndex) ?: chapter.chapterTitle
+                        } else {
+                            chapter.chapterTitle
+                        },
                         loadState = existing?.loadState ?: MangaPageLoadState.Queued,
                         retryRevision = existing?.retryRevision ?: 0,
                     )
@@ -495,13 +508,12 @@ class MangaReaderViewModel(
                     R.string.manga_reader_transition_chapter_number,
                     targetChapterIndex + 1,
                 ).takeIf { targetExists }
+            // PDF 是「一页一章」：每翻一页都会走到这里，插一张"换章"卡片就是每页闪一下
+            // 加载条（Loading 态那张还带转圈）。页图已改后台预渲染、加载近乎瞬时，所以除
+            // 失败态外一律不插；失败态留着是因为那里有重试入口。
+            if (pdfSinglePage && chapter !is MangaChapterState.Failed) return emptyList()
             return when (chapter) {
-            // PDF 是「一页一章」：每翻一页都会命中这个分支，若照常插入"换章"整屏，
-            // 阅读时就会一页正文夹一屏黑底章节提示。错误态（Failed/Empty）照旧保留，
-            // 那里有重试入口，不能省。
-            is MangaChapterState.Ready -> if (session.book.bookUrl.endsWith(".pdf", true)) {
-                emptyList()
-            } else listOf(
+            is MangaChapterState.Ready -> listOf(
                 MangaReaderItemUi.ChapterTransition(
                     key = "transition:$edgePrefix:${session.chapterIndex}:ready",
                     direction = direction,
@@ -625,7 +637,13 @@ class MangaReaderViewModel(
                     bookUrl = book.bookUrl,
                     coverUrl = book.coverUrl,
                     customCoverUrl = book.customCoverUrl,
-                    chapterName = current.chapter.chapterTitle,
+                    // PDF 整本一章，章标题恒为「第1页」；按当前页取章节表里的那一条才对
+                    chapterName = if (pdfSinglePage) {
+                        book.chapterTitles.getOrNull(session.pageIndex)
+                            ?: current.chapter.chapterTitle
+                    } else {
+                        current.chapter.chapterTitle
+                    },
                     chapterUrl = current.chapter.chapterUrl,
                     sourceName = book.sourceName,
                     sourceUrl = book.sourceOrigin,
@@ -1357,16 +1375,22 @@ class MangaReaderViewModel(
         }
     }
 
+    /** PDF 整本当作一章（见 MangaReaderDataRepository.openBook） */
+    private fun pdfSinglePageBook(): Boolean =
+        readerSession.state.value.book?.bookUrl?.endsWith(".pdf", true) == true
+
     private fun readSettings(settings: MangaSettings): MangaReaderSettings {
         val colorFilter = GSON.fromJsonObject<MangaColorFilterConfig>(settings.colorFilter)
             .getOrNull() ?: MangaColorFilterConfig()
         val footer = GSON.fromJsonObject<MangaFooterConfig>(settings.footerConfig)
             .getOrNull() ?: MangaFooterConfig()
+        val pdfDocument = readerSession.state.value.book?.bookUrl?.endsWith(".pdf", true) == true
         return MangaReaderSettings(
-        // PDF 走连续滚动（条漫式）：分页模式下 PDF 是"一页一章"，每翻一页都插一屏换章提示，
-        // 读起来像在不停切章；上下连续滚动才是文档该有的手感，而且那个模式没有换章层。
-        scrollMode = if (readerSession.state.value.book?.bookUrl?.endsWith(".pdf", true) == true) {
-            MangaScrollMode.WEBTOON_WITH_GAP
+        // PDF 走无间隔条漫：分页模式下 PDF 是"一页一章"，每翻一页都插一屏换章提示，读起来像
+        // 在不停切章；条漫才是文档该有的手感，而且那个模式没有换章层。页与页之间不留缝，
+        // 扫描页本来就该首尾相接。
+        scrollMode = if (pdfDocument) {
+            MangaScrollMode.WEBTOON
         } else {
             readerSession.state.value.book?.scrollMode ?: settings.scrollMode
         },
@@ -1384,9 +1408,11 @@ class MangaReaderViewModel(
         // PDF 一律允许双指缩放：这条路上不缩放就只能看原始尺寸（PDF 页往往比屏幕大）。
         // 其他漫画书继续尊重用户的「双指缩放」设置（该设置默认是关的）。
         disableScale = settings.disableMangaScale &&
-            readerSession.state.value.book?.bookUrl?.endsWith(".pdf", true) != true,
+            !pdfDocument,
         disableScrollAnimation = settings.disableMangaScrollAnimation,
-        disableCrossFade = settings.disableMangaCrossFade,
+        // PDF 关掉淡入：页图已由后台预渲染备好，淡入只会让人看见"半透明的一页"而误以为
+        // 在加载；连续滚动里页面本来就该无缝接上。
+        disableCrossFade = settings.disableMangaCrossFade || pdfDocument,
         disableClickScroll = settings.disableClickScroll,
             longPressEnabled = settings.longClick,
             preDownloadCount = settings.preDownloadNum,

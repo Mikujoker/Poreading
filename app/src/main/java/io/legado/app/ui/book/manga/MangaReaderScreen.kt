@@ -424,8 +424,17 @@ private fun MangaChapterImagePrefetch(
         state.settings.preDownloadCount,
         state.chapterIndex
     ) {
+        // PDF 整本是一章，没有上限就会把整本上百页全排进预取队列；普通漫画仍整章预取
+        val prefetchLimit = if (state.bookUrl.endsWith(".pdf", true)) {
+            state.settings.preDownloadCount
+        } else Int.MAX_VALUE
         val pages = if (state.settings.preDownloadCount <= 0) emptyMap() else
-            mangaChapterPrefetchPages(state.pages, prefetchItemIndex, state.chapterIndex)
+            mangaChapterPrefetchPages(
+                state.pages,
+                prefetchItemIndex,
+                state.chapterIndex,
+                prefetchLimit,
+            )
                 .associateBy { it.key to it.retryRevision }
         prefetch.update(pages.keys.toList()) { key ->
             val page = pages.getValue(key)
@@ -660,22 +669,28 @@ private fun WebtoonMangaList(
         // Programmatic scrolling also emits a scroll-idle event. That event must not clear the
         // request before the target's actual layout has been confirmed below.
         if (forcedItemIndex == null && currentState.scrollRequest != null) return
-        val visibleItems = listState.layoutInfo.visibleItemsInfo.filter { visible ->
+        val layout = listState.layoutInfo
+        val visibleItems = layout.visibleItemsInfo.filter { visible ->
             currentState.pages.getOrNull(visible.index)?.key == visible.key
         }
         val focusedItemIndex = forcedItemIndex ?: mangaWebtoonFocusedPageIndex(
             items = currentState.pages,
-            visibleItemIndices = visibleItems.map { it.index },
+            visibleItems = visibleItems.map {
+                MangaWebtoonVisibleItem(it.index, it.offset, it.size)
+            },
             currentChapterIndex = currentState.chapterIndex,
+            // 阅读线 = 视口中心：条漫里「正在读的那一页」就是压在这条线上的页
+            readingLine = (layout.viewportStartOffset + layout.viewportEndOffset) / 2,
         ) ?: return
         if (currentState.pages.getOrNull(focusedItemIndex) !is MangaReaderItemUi.Page) return
         val forcedItemVisible = forcedItemIndex == null ||
                 visibleItems.any { it.index == forcedItemIndex }
         if (!forcedItemVisible) return
-        val currentChapterVisible = visibleItems.any { visibleItem ->
-            (currentState.pages.getOrNull(visibleItem.index) as? MangaReaderItemUi.Page)
+        // 与翻页模式同口径：焦点页本身就在当前章里才算「当前章还看得见」。旧口径是
+        // 「当前章任意一页可见」——一页一章时它恒为真，于是永远切不到下一章。
+        val currentChapterVisible =
+            (currentState.pages.getOrNull(focusedItemIndex) as? MangaReaderItemUi.Page)
                 ?.chapterIndex == currentState.chapterIndex
-        }
         onIntent(
             MangaReaderIntent.VisibleItemChanged(
                 itemIndex = focusedItemIndex,
@@ -713,14 +728,18 @@ private fun WebtoonMangaList(
     LaunchedEffect(listState) {
         snapshotFlow {
             listState.isScrollInProgress to
-                    listState.layoutInfo.visibleItemsInfo.map { it.index }
-        }.distinctUntilChanged().collect { (scrolling, visibleIndices) ->
+                    listState.layoutInfo.visibleItemsInfo.map {
+                        MangaWebtoonVisibleItem(it.index, it.offset, it.size)
+                    }
+        }.distinctUntilChanged().collect { (scrolling, visibleItems) ->
             if (!scrolling) return@collect
             val currentState = latestReaderState
+            val layout = listState.layoutInfo
             mangaWebtoonFocusedPageIndex(
                 items = currentState.pages,
-                visibleItemIndices = visibleIndices,
+                visibleItems = visibleItems,
                 currentChapterIndex = currentState.chapterIndex,
+                readingLine = (layout.viewportStartOffset + layout.viewportEndOffset) / 2,
             )?.let { itemIndex ->
                 onIntent(
                     MangaReaderIntent.FooterItemChanged(

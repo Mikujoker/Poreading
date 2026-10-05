@@ -277,7 +277,12 @@ fun MangaReaderRouteScreen(
                 show = true,
                 bookUrl = state.bookUrl,
                 initialTab = ReaderBookSheetTab.Toc,
-                currentChapterIndex = state.pendingChapterIndex ?: state.chapterIndex,
+                // PDF 整本是一章，章节表里的一行就是「第 N 页」，高亮要跟当前页走
+                currentChapterIndex = if (state.bookUrl.endsWith(".pdf", true)) {
+                    state.currentPage
+                } else {
+                    state.pendingChapterIndex ?: state.chapterIndex
+                },
                 onDismissRequest = { viewModel.onIntent(MangaReaderIntent.DismissSheet) },
                 onChapterClick = { chapterIndex, pageIndex ->
                     viewModel.onIntent(MangaReaderIntent.DismissSheet)

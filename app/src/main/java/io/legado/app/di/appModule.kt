@@ -220,6 +220,7 @@ import io.legado.app.domain.usecase.readRecord.GetReadRecordOverviewUseCase
 import io.legado.app.feature.onboarding.OnboardingViewModel
 import io.legado.app.help.coil.CoverFetcher
 import io.legado.app.help.coil.CoverInterceptor
+import io.legado.app.help.coil.PdfPageMapper
 import io.legado.app.help.config.ThemePackageManager
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.help.http.okHttpClientManga
@@ -555,6 +556,8 @@ val appModule = module {
                 add(SvgDecoder.Factory())
                 add(CoverInterceptor())
                 add(CoverFetcher.Factory(okHttpClient, okHttpClientManga))
+                // PDF 页的惰性地址：真正取图（含预取）时才光栅化那一页
+                add(PdfPageMapper())
             }
             .crossfade(true)
             .build()
