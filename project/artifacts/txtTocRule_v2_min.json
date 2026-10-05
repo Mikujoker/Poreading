@@ -18,6 +18,15 @@
     "serialNumber": 1
   },
   {
+    "id": -8,
+    "enable": true,
+    "name": "数字 可选分隔符 标题名称",
+    "chapterRule": "^[ 　\\t]{0,4}\\d{1,5}[:：,.， 、_—\\-]?[^。！？，、；：……”\"』」\\n]{1,20}$",
+    "volumeRule": "",
+    "example": "1、这个就是标题\n02美好的明天",
+    "serialNumber": 7
+  },
+  {
     "id": 9101,
     "enable": true,
     "name": "分隔线 ※——=＊",
