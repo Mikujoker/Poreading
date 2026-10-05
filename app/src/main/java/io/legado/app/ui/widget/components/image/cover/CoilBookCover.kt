@@ -1,6 +1,9 @@
 package io.legado.app.ui.widget.components.image.cover
 
 import android.graphics.Paint
+import java.io.File
+import splitties.init.appCtx
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
@@ -38,6 +41,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
@@ -48,15 +54,19 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.withSave
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import io.legado.app.core.ui.morph.BookCoverMorphAnchors
 import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.utils.FileUtils
 import io.legado.app.ui.theme.LocalAppUiConfiguration
 import org.koin.compose.koinInject
 import io.legado.app.model.BookCover as BookCoverModel
+import androidx.compose.ui.graphics.BlendMode
 
 private const val SharedCoverRadiusCacheMaxSize = 256
 
@@ -526,6 +536,40 @@ private fun balancedTitleLines(
     return out.filter { it.isNotEmpty() }.take(maxLines)
 }
 
+/** 默认封面的纸色 / 墨色 / 朱砂（用户口径：米粉底 + 山水 + 手写楷体书名 + 朱红印章）。 */
+private const val COVER_PAPER_DAY = 0xFFF7EEE6.toInt()
+private const val COVER_PAPER_NIGHT = 0xFF221D19.toInt()
+private const val COVER_INK_DAY = 0xFF2A2420.toInt()
+private const val COVER_INK_NIGHT = 0xFFE8DFD3.toInt()
+private const val COVER_SEAL = 0xFFB03A2A.toInt()
+
+/** 封面底纹（山水），随 APK 走，按封面尺寸拉伸铺满。 */
+private val coverArtBitmap: ImageBitmap? by lazy {
+    runCatching {
+        appCtx.assets.open("coverArt/kazusa-shanshui.png").use {
+            BitmapFactory.decodeStream(it).asImageBitmap()
+        }
+    }.getOrNull()
+}
+
+/** 手写楷体：优先用外挂字体目录里的霞鹜文楷（B3 约定），取不到回退系统衬线。 */
+private val coverKaiTypeface: Typeface by lazy {
+    runCatching {
+        val f = File(FileUtils.getSdCardPath(), "legado/fonts/LXGWWenKaiScreen.ttf")
+        if (f.isFile) Typeface.createFromFile(f) else null
+    }.getOrNull() ?: Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+}
+
+/** 印章里的作者名：1~2 字竖排，3~4 字排成两行（最多刻 4 个字）。 */
+private fun sealRows(author: String): List<String> {
+    val t = author.trim().take(4)
+    return when {
+        t.isEmpty() -> emptyList()
+        t.length <= 2 -> t.map { it.toString() }
+        else -> listOf(t.substring(0, 2), t.substring(2))
+    }
+}
+
 @Composable
 private fun CoverTextOverlay(
     name: String?,
@@ -533,26 +577,24 @@ private fun CoverTextOverlay(
     isNight: Boolean
 ) {
     val coverSettings = LocalAppUiConfiguration.current.cover
-    val showName = if (isNight) coverSettings.showNameDark else coverSettings.showName
-    val showAuthor =
-        (if (isNight) coverSettings.showAuthorDark else coverSettings.showAuthor) && showName
+    val showName = (if (isNight) coverSettings.showNameDark else coverSettings.showName) &&
+        !name.isNullOrBlank()
+    // 没有书名就交给外层画占位图标（封面不能一个字都没有）
+    if (!showName) return
+    val showAuthor = (if (isNight) coverSettings.showAuthorDark else coverSettings.showAuthor) &&
+        !author.isNullOrBlank()
 
-    if (!showName && !showAuthor) return
-
-    val secondaryColor = MaterialTheme.colorScheme.secondary.toArgb()
-    val textColor = if (coverSettings.useDefaultColor) {
-        secondaryColor
+    val titleText = name!!
+    val authorText = if (showAuthor) author!!.trim() else null
+    val paperColor = Color(if (isNight) COVER_PAPER_NIGHT else COVER_PAPER_DAY)
+    val inkColor = if (isNight) COVER_INK_NIGHT else COVER_INK_DAY
+    // 夜里山水要反相成浅墨，否则深墨压在深底上等于没有
+    val artFilter = if (isNight) {
+        ColorFilter.tint(Color(0xFF6F665C), BlendMode.SrcIn)
     } else {
-        if (isNight) coverSettings.textColorDark else coverSettings.textColor
+        null
     }
-    val shadowColor =
-        if (isNight) coverSettings.shadowColorDark else coverSettings.shadowColor
-    val configIsHorizontal = coverSettings.infoOrientation == "1"
-    // If text contains Latin letters, force horizontal layout
-    val isHorizontal = configIsHorizontal || isLatinBasedText(name)
 
-    // Paints, StaticLayout and per-character positions are built in the cache block so they are
-    // rebuilt only when the size or the settings above change, not on every draw pass.
     Spacer(
         modifier = Modifier
             .fillMaxSize()
@@ -563,84 +605,81 @@ private fun CoverTextOverlay(
                     return@drawWithCache onDrawBehind { }
                 }
 
-                // 默认封面（没有封面图时）的文字排版按 DESIGN.md 定：
-                // 居中成块、字号随书名长度自适应、最多 3 行、行高 1.25、作者降一级跟在书名下面。
-                // 不用白色描边 —— 那是给图片封面保证可读性的手法，平底封面上只会显脏。
-                val nameTextSize = name?.takeIf(String::isNotBlank)?.let { n ->
-                    when {
-                        n.length <= 4 -> viewWidth / 5.8f
-                        n.length <= 7 -> viewWidth / 7.0f
-                        n.length <= 11 -> viewWidth / 8.4f
-                        else -> viewWidth / 9.8f
-                    }
-                } ?: (viewWidth / 8f)
-                val authorTextSize = nameTextSize * 0.42f
-
-                val nameTextPaint = if (showName && !name.isNullOrBlank()) {
-                    TextPaint().apply {
-                        isAntiAlias = true
-                        textAlign = Paint.Align.CENTER
-                        typeface = Typeface.DEFAULT
-                        textSize = nameTextSize
-                        color = textColor
-                        if (coverSettings.showShadow) {
-                            setShadowLayer(3f, 1f, 1f, shadowColor)
-                        }
-                    }
-                } else null
-
-                val nameLines = if (nameTextPaint != null && name != null) {
-                    balancedTitleLines(name, nameTextPaint, viewWidth * 0.86f)
-                } else {
-                    emptyList()
+                // 书名：手写楷体，字号随长度自适应，断行自己按视觉重量均衡（书封原则：别留孤字）
+                val titleSize = when {
+                    titleText.length <= 4 -> viewWidth / 4.4f
+                    titleText.length <= 7 -> viewWidth / 5.4f
+                    titleText.length <= 11 -> viewWidth / 6.6f
+                    else -> viewWidth / 7.8f
                 }
-                // 展示级字号行距收紧（正文才有 1.4~1.6，书封标题 1.1~1.2 才对）
-                val lineHeight = nameTextSize * 1.18f
+                val titlePaint = Paint().apply {
+                    isAntiAlias = true
+                    textAlign = Paint.Align.CENTER
+                    typeface = coverKaiTypeface
+                    textSize = titleSize
+                    color = inkColor
+                }
+                val titleLines = balancedTitleLines(titleText, titlePaint, viewWidth * 0.80f)
+                val lineHeight = titleSize * 1.18f
 
-                val authorPaint = if (showAuthor && !author.isNullOrBlank()) {
-                    TextPaint().apply {
-                        isAntiAlias = true
-                        textAlign = Paint.Align.CENTER
-                        textSize = authorTextSize
-                        color = textColor
-                        alpha = 150
-                    }
-                } else null
-                val authorText = if (authorPaint != null && author != null) {
-                    TextUtils.ellipsize(
-                        author,
-                        TextPaint(authorPaint),
-                        viewWidth * 0.84f,
-                        TextUtils.TruncateAt.END,
-                    ).toString()
-                } else null
+                // 朱红印章：只在有作者时出现（用户：没作者两个都不要）
+                val rows = authorText?.let { sealRows(it) }.orEmpty()
+                val sealSize = if (rows.isEmpty()) 0f else viewWidth * 0.21f
+                val sealGap = if (rows.isEmpty()) 0f else titleSize * 0.40f
+                // 印章里的字：一行最多两个字，所以字号按 1~2 字分档
+                val sealTextSize = sealSize * (if (rows.any { it.length > 1 }) 0.30f else 0.34f)
+                val sealTextPaint = Paint().apply {
+                    isAntiAlias = true
+                    textAlign = Paint.Align.CENTER
+                    typeface = coverKaiTypeface
+                    color = Color.White.toArgb()
+                    textSize = sealTextSize
+                }
+                val sealPaint = Paint().apply {
+                    isAntiAlias = true
+                    color = COVER_SEAL
+                }
 
-                val nameBlockHeight = nameLines.size * lineHeight
-                val gap = if (authorPaint != null) authorTextSize * 0.9f else 0f
-                val extra = if (authorPaint != null) authorTextSize else 0f
-                val blockTop = ((viewHeight - nameBlockHeight - gap - extra) / 2f)
-                    .coerceAtLeast(viewHeight * 0.1f)
-                val firstBaseline = blockTop + nameTextSize * 0.95f
-                val authorBaseline = blockTop + nameBlockHeight + gap + authorTextSize * 0.82f
+                val blockHeight = titleLines.size * lineHeight + sealGap + sealSize
+                val blockTop = ((viewHeight - blockHeight) / 2f).coerceAtLeast(viewHeight * 0.12f)
+                val firstBaseline = blockTop + titleSize * 0.94f
+                val sealTop = blockTop + titleLines.size * lineHeight + sealGap
+                val sealLeft = (viewWidth - sealSize) / 2f
+                val rowStep = sealTextSize * 1.08f
+                val sealTextTop = sealTop + (sealSize - rows.size * rowStep) / 2f
 
                 onDrawBehind {
+                    drawRect(paperColor)
+                    coverArtBitmap?.let { art ->
+                        drawImage(
+                            image = art,
+                            dstOffset = IntOffset.Zero,
+                            dstSize = IntSize(viewWidth.toInt(), viewHeight.toInt()),
+                            colorFilter = artFilter,
+                        )
+                    }
                     drawIntoCanvas { canvas ->
                         val nativeCanvas = canvas.nativeCanvas
                         var baseline = firstBaseline
-                        nameLines.forEach { line ->
-                            nameTextPaint?.let {
-                                nativeCanvas.drawText(line, viewWidth / 2f, baseline, it)
-                            }
+                        titleLines.forEach { line ->
+                            nativeCanvas.drawText(line, viewWidth / 2f, baseline, titlePaint)
                             baseline += lineHeight
                         }
-                        // 书封上只用留白和明度做分隔，不加描边/发光（那是弱构图的遮羞布）
-                        if (authorPaint != null && authorText != null) {
-                            nativeCanvas.drawText(
-                                authorText,
-                                viewWidth / 2f,
-                                authorBaseline,
-                                authorPaint,
+                        if (rows.isNotEmpty()) {
+                            nativeCanvas.drawRoundRect(
+                                sealLeft,
+                                sealTop,
+                                sealLeft + sealSize,
+                                sealTop + sealSize,
+                                sealSize * 0.14f,
+                                sealSize * 0.14f,
+                                sealPaint,
                             )
+                            var y = sealTextTop + sealTextSize * 0.94f
+                            rows.forEach { row ->
+                                nativeCanvas.drawText(row, viewWidth / 2f, y, sealTextPaint)
+                                y += rowStep
+                            }
                         }
                     }
                 }
