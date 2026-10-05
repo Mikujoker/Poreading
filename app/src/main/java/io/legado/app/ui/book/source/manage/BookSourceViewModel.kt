@@ -49,8 +49,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
@@ -150,18 +148,6 @@ class BookSourceViewModel(
      * 计数的输入是全量、与筛选无关，所以单独从 flowAll 算；
      * 并且只做**一次**遍历，供统计条、筛选、列表显示三处共用。
      */
-    /** 命中缓存的索引：构造时就同步读好，让统计条和行色第一帧就有值。 */
-    private val cachedHealthIndex: HealthIndex? = SourceHealthCache.read(application)?.let { cached ->
-        HealthIndex(
-            byUrl = cached.byUrl.mapNotNull { (url, name) ->
-                runCatching { SourceHealth.valueOf(name) }.getOrNull()?.let { url to it }
-            }.toMap(),
-            counts = cached.counts.mapNotNull { (name, count) ->
-                runCatching { SourceHealth.valueOf(name) }.getOrNull()?.let { it to count }
-            }.toMap(),
-        )
-    }
-
     private val healthIndex =
         combine(repository.flowAll(), ruleFlagsByUrl, enabledOverrides) { all, flags, overrides ->
             val byUrl = HashMap<String, SourceHealth>(all.size)
@@ -172,24 +158,7 @@ class BookSourceViewModel(
                 counts[health] = (counts[health] ?: 0) + 1
             }
             HealthIndex(byUrl, counts)
-        }
-            .onStart { cachedHealthIndex?.let { emit(it) } }
-            .onEach { index ->
-                // 落盘：下次打开就能先出这个结果，不必再等全表扫描
-                SourceHealthCache.write(
-                    application,
-                    CachedSourceHealth(
-                        fingerprint = SourceHealthCache.fingerprint(application),
-                        counts = index.counts.mapKeys { it.key.name },
-                        byUrl = index.byUrl.mapValues { it.value.name },
-                    ),
-                )
-            }
-            .stateIn(
-                viewModelScope,
-                SharingStarted.WhileSubscribed(5_000),
-                cachedHealthIndex ?: HealthIndex.EMPTY,
-            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HealthIndex.EMPTY)
 
     private val importedOrFilteredItems = combine(
         repository.flowAll(),
