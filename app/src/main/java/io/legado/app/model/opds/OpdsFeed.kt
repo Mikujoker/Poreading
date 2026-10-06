@@ -89,10 +89,11 @@ object OpdsFeed {
                 (it.type != null && BOOK_TYPES.any { t -> it.type.contains(t) })
         }
         val acquisition = preferred(direct)
+        // 取舍：不带 kind=acquisition 的 atom catalog 链接一律当"可进入的目录/书级 feed"。
+        // Gutenberg 的书条目与目录项同形（都是 rel=subsection 且无 kind），判成目录后
+        // 用户点进去那一层就能看到 epub 直链；反过来把真目录判成书，点下载只会失败。
+        val nav = atomLinks.firstOrNull { it.rel != REL_ACQUISITION }
         val bookFeed = atomLinks.firstOrNull { it.type?.contains(KIND_ACQUISITION) == true }
-        val nav = atomLinks.firstOrNull {
-            it.type?.contains(KIND_ACQUISITION) != true && it.rel != REL_ACQUISITION
-        }
         val cover = links.firstOrNull { it.rel?.contains(REL_IMAGE) == true }
             ?: links.firstOrNull { it.rel?.contains(REL_THUMBNAIL) == true }
             ?: links.firstOrNull { it.rel?.contains("x-stanza-cover-image") == true }
@@ -108,7 +109,6 @@ object OpdsFeed {
         )
     }
 
-    /** 从一页里挑出"最值得下载"的资源：优先 epub，其次 pdf/mobi/txt。 */
     /** 从一页里挑出"最值得下载"的资源（先按同一条目的格式偏好，再看跨条目的）。 */
     fun pickAcquisition(page: Page): Link? =
         preferred(page.entries.mapNotNull { it.acquisition })

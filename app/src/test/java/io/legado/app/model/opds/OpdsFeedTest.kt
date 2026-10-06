@@ -156,4 +156,31 @@ class OpdsFeedTest {
         assertEquals("application/epub+zip", picked?.type)
         assertEquals("https://www.gutenberg.org/ebooks/11.epub.noimages", picked?.href)
     }
+
+    @Test
+    fun `Gutenberg 搜索页_书条目是 rel=subsection 且不带 kind_要当成可取书`() {
+        val xml = """
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <title>Search Results</title>
+              <entry>
+                <title>Authors</title>
+                <link type="application/atom+xml;profile=opds-catalog" rel="subsection"
+                      href="/ebooks/authors/search.opds/?query=alice"/>
+              </entry>
+              <entry>
+                <title>Alice's Adventures in Wonderland</title>
+                <link type="application/atom+xml;profile=opds-catalog" rel="subsection"
+                      href="/ebooks/11.opds"/>
+              </entry>
+            </feed>
+        """.trimIndent()
+        val page = OpdsFeed.parse(xml, "https://www.gutenberg.org/ebooks/search.opds/?query=alice")
+        // 同形无法从结构区分：这两个都当"可进入的目录"，进去那一层才有 epub 直链
+        assertEquals(2, page.navEntries.size)
+        assertEquals(0, page.bookEntries.size)
+        assertEquals(
+            "https://www.gutenberg.org/ebooks/11.opds",
+            page.navEntries[1].navHref,
+        )
+    }
 }
