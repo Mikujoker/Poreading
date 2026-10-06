@@ -21,6 +21,7 @@
 - XML/View/Activity/Fragment/RecyclerView 到 Compose 的页面迁移、新 Compose 页面：使用
   `legado-compose-migration`。
 - Compose Screen、Contract、ViewModel、导航、状态与兼容边界审查：使用 `legado-compose-review`。
+- 书源诊断/修复、AI 修源、端上规则验证（含 Cloudflare/登录/封面/搜索为空）：使用 `legado-source-repair`。
 - Gradle 模块拆分、`commonMain` 抽取、KMP/CMP、`expect/actual`、平台能力适配、迁移门禁或相关脚手架：使用
   `legado-kmp-migration`。
 - 单个任务可组合 skill，但只读取与当前工作切片有关的 reference。
