@@ -169,6 +169,16 @@ fun MyScreen(
                     }
                 )
                 ClickableSettingItem(
+                    title = "OPDS 目录源",
+                    description = "浏览/搜索 OPDS 书库，下载后自动进书架",
+                    imageVector = Icons.Default.Source,
+                    onClick = {
+                        onNavigate(
+                            PrefClickEvent.OpenOpds
+                        )
+                    }
+                )
+                ClickableSettingItem(
                     title = stringResource(R.string.replace_purify),
                     imageVector = Icons.Default.FindReplace,
                     onClick = {

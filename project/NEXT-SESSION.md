@@ -76,3 +76,23 @@
 - 改数据层前先看 `HANDOFF.md` 的「书 URL 迁移」那节；装完机一定自己验一遍（优先用 JSON 接口，不靠截图）
 - 书源改动先过 `source_check.py`（纯 HTTP 站）或端上调试接口（CF 站）；校验器覆盖不到的字段标 SKIP，**不许当 PASS**
 - 遇到"我以为"的地方先做一次最小验证再往下走
+
+### EPUB 无损渲染：下一轮方案（2026-10-06 调研结论）
+**引擎选择：Readium Kotlin toolkit（`org.readium.kotlin-toolkit`）**
+- 事实核对：它是 EDRLab 的标准实现，2026-09 还在发版（3.4.0）✓，Maven Central ✓，minSdk 23 ✓（本仓库 26 ✓），
+  需要 Kotlin 2.3.20 + Gradle 9.1 ✓（本仓库 Kotlin 2.4.20 + Gradle 9.8 ✓ 兼容）
+- **关键事实**：`EpubNavigatorFragment` 内部就是 WebView（`R2BasicWebView`）→ Android 上"真无损"只有 WebView 这条路，
+  差别只在分页/缩放/手势/主题/定位是自研还是用现成的
+- Readium 直接提供：reflow + 固定版式分页、CSS/主题注入（`EpubPreferences`：字号/字体/主题/行距）、
+  Locator 进度模型、选区/标注、TTS 钩子 —— 正好是 v1 失败的那几块
+- 参考实现：`chmouel/liseur`（开源阅读器，Readium + calibre-web + OPDS 三件套齐全）
+- 备选：`KNITIPKA/frog-reader`（自研 CSS 解析、非 WebView）→ CSS 支持必然残缺，且不是库可复用，不建议
+
+**接入计划（下一轮主任务）**
+1. 依赖：`readium-shared` + `readium-streamer` + `readium-navigator`（用 epub navigator）
+2. 新独立阅读页：宿主 `EpubNavigatorFragment`（Compose 里用 AndroidFragment 承载），**不要再和自绘画布叠加**
+3. 对接：本地 epub 路径 → Publication → 目录（href/fragment ↔ BookChapter）→ 进度
+   （Locator ↔ durChapterIndex + durChapterPos，progression ×10000 复用现有字段）
+4. 主题：把 `ReadBookStyleConfig`（字号/字色/背景/字体/行距）映射到 `EpubPreferences`
+5. 手势：分页/滑动交给 Readium；菜单用 Compose 浮层（Readium 自己处理 WebView 触摸，v1 的"吃点击"问题由设计规避）
+6. 验证：截图（CDP 在此设备不可用：renderer 命令全超时）+ 单测

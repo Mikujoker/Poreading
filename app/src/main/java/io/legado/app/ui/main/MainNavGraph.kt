@@ -516,6 +516,9 @@ fun MainActivity.mainEntryProvider(
             onNavigateToBookSourceManage = {
                 onNavigateToRoute(MainRouteBookSourceManage())
             },
+            onNavigateToOpds = {
+                onNavigateToRoute(MainRouteOpds)
+            },
             onNavigateToBookSourceEdit = {
                 onNavigateToRoute(MainRouteBookSourceEdit(it))
             },
