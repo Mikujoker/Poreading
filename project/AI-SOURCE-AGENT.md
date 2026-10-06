@@ -166,6 +166,22 @@ Legado 书源的规则是**按页面类型**分组的，这是整个系统的骨
   `td[width='20%'] img[src*='img.wenku8.com']@src`，端上断言通过（唯一封面 + 图片可下载，已采纳入 v12）；
   另一次目标是"站点确实没有封面"的源，循环给出 `field_not_on_page` 结论而不是硬造选择器——**该认输时认输**。
 
+**2026-10-07 AI 修源 v1（app 内：整源生成 + 登录能力）**
+
+- **整源生成** `POST /generateSource {site,key}`：给站点 URL + 一个关键词，逐组生成
+  `searchUrl → ruleBookInfo → ruleToc → ruleContent`，**每组一通过就立刻写回**（不再"全通才写"），
+  每组 ≤2 次 LLM 修正。搜索组顺序：机械抠搜索表单 → 引擎验证 → 不通过才问 LLM → 仍不通过走**端点变体扫描**
+  （`search_guard=css` 降级 / POST↔GET / 页面里的 `/search/x_{{page}}.html` 形态）。
+- **登录能力（对齐 wenku8）**：取页遇到挑战页 / 登录墙（有 password 框或"请先登录"）/ 空壳页（<400 字节）
+  → 弹内置浏览器；登录成功后**自动写回** `loginUrl`（若空）+ `loginUi`（账号/密码）+
+  `loginCheckJs`（退出登录/logout/个人中心 检测）+ `enabledCookieJar=true` → 登录一次、长期复用；
+  已有会话只想补字段用 `POST /fillLoginFields`（实测 m.linovelib.com 补齐并落库）。
+- **判据修正**：`bookList`/`searchUrl` 的判据是「`列表大小>0` **或** `书籍总数≥1`」——
+  站点把唯一命中 302 到详情页时列表本就为空，Legado 用详情页兜底给出 1 本；判错会让 LLM 围着没坏的选择器空转（已踩）。
+- **报告直达（不截图）**：`/repairSource`、`/generateSource` 回 `steps[]`（每步 ok + 证据）与 `log`；
+  `GET /getRepairJournal` 读界面运行状态。
+- 实测边界：bilinovel 确认为 **JS 计算类**搜索（选择器无解，已归类并写进 skill）。
+
 **⑤ 交付层（写回）**
 只写 patch 命中的字段 → 生成可导入 JSON → 人审 diff → 应用（app 内导入，或 Web API `/saveBookSources`）
 → 记录证据（before/after + 验证输出）。

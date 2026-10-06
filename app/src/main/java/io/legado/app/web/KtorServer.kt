@@ -145,6 +145,7 @@ class KtorServer(private val port: Int) {
                 post("/repairSource") { handlePost { SourceRepairApiController.repair(it) } }
                 post("/generateSource") { handlePost { SourceRepairApiController.generate(it) } }
                 post("/fillLoginFields") { handlePost { SourceRepairApiController.fillLoginFields(it) } }
+                post("/fillAllLoginFields") { handlePost { SourceRepairApiController.fillAllLoginFields(it) } }
                 post("/saveAiProfile") { handlePost { AiProfileController.saveDefaultChat(it) } }
                 get("/getAiProfile") { handleGet { AiProfileController.getDefaultChat() } }
                 get("/verifyLogin") { handleGet { SourceDebugController.verifyLogin(it) } }

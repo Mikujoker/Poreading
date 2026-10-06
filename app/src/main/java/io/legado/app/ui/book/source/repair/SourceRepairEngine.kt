@@ -21,8 +21,18 @@ object SourceRepairEngine {
 
     /** 登录墙判定：有密码框，或明确的「请先登录」话术（导航栏里的「登录」链接不算） */
     fun looksLikeLoginWall(html: String): Boolean {
-        if (html.contains("type=\"password\"") || html.contains("type='password'")) return true
-        return listOf("请先登录", "登录后可见", "登录后查看", "用户登录", "请登录后").any { html.contains(it) }
+        val hasPassword = html.contains("type=\"password\"") || html.contains("type='password'")
+        // 注意：不能用「用户登录」当标记——它只是已登录页面的侧栏区块标题（会误判）
+        val afterLogin = listOf("请先登录", "登录后可见", "登录后查看", "请登录后", "登录后才能")
+            .any { html.contains(it) }
+        if (!hasPassword) return afterLogin
+        // 有密码框 ≠ 登录墙：已登录页面的侧栏常常就带着「用户登录」块
+        if (listOf("退出登录", "logout", "个人中心", "我的书架").any { html.contains(it) }) return false
+        val title = Regex("<title>([^<]{0,80})", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1).orEmpty()
+        if (Regex("login|登录|登陆", RegexOption.IGNORE_CASE).containsMatchIn(title)) return true
+        // 很短还带密码框、又没有已登录迹象 → 基本就是登录页
+        return html.length < 20_000
     }
 
     /** 需要人工介入（挑战页/登录墙/空壳页）；这类问题选择器救不了 */
@@ -40,12 +50,17 @@ object SourceRepairEngine {
         events.joinToString("\n") { TIME_PREFIX.replace(it.message, "") }
 
     fun valueBlock(text: String, label: String): String =
-        Regex(Regex.escape(label) + "([\\s\\S]*?)(?=\\n┌|\\Z)")
+        Regex(Regex.escape(label) + "\\s*[└◇]([\\s\\S]*?)(?=\\n┌|\\Z)")
             .find(text)?.groupValues?.get(1).orEmpty()
 
-    fun valueAfter(text: String, label: String): String =
-        Regex(Regex.escape(label) + "\\s*└([^\n]*)")
+    fun valueAfter(text: String, label: String): String {
+        // 两种形态都要认：①「┌标签」下一行是「└值」；②「◇标签:值」（标记在标签前面）
+        Regex("[└◇]\\s*" + Regex.escape(label) + "[:：]?([^\\n]*)").find(text)?.let {
+            return it.groupValues[1].trim()
+        }
+        return Regex(Regex.escape(label) + "\\s*[└◇]([^\\n]*)")
             .find(text)?.groupValues?.get(1)?.trim().orEmpty()
+    }
 
     fun coverUrls(text: String): List<String> = valueBlock(text, "获取封面链接")
         .lines()

@@ -100,6 +100,11 @@
 - `project/tools/ai_repair_source.py` —— **AI 修源循环**：出口自检 → 取页分级 → 机械探针 → LLM **单字段** patch →
   端上真引擎断言 → 回滚/写回；预算 3 轮 / 10 分钟 / 200k tokens。
   ⚠️ `--check-only` 必须先校准判据（拿已知好值/坏值各跑一次），坏判据会让 AI 围着假失败空转。
+- 新增 app 侧接口（都在 1122 端口）：`POST /repairSource`（单字段/端点修复循环，回完整 JSON 报告）、
+  `POST /generateSource`（**整源生成**：搜索→详情→目录→正文，每组通过即写回）、
+  `POST /fillLoginFields`（只补登录能力字段：loginUrl/loginUi/loginCheckJs/cookieJar）、
+  `GET /getRepairJournal`（读 app 内「AI 修复」运行状态）、
+  `POST /saveAiProfile` / `GET /getAiProfile`（配 / 读 AI 对话模型，**key 只写不读**）
 - `.agents/skills/legado-source-repair/` —— **书源修复 skill**（流程、harness 接口、判据表、坑表 +
   `references/wenku8-v11-retro.md` 实战复盘）。做书源诊断/修复前先读它；已登记进 `AGENTS.md` 技能路由。
 - app 侧新增两个原语（AI 修源用）：`GET /fetchPage`（手机 WebView 抓页，能过 CF）、

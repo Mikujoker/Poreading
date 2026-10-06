@@ -164,7 +164,7 @@ class SourceRepairRunner(
         if (target == "searchUrl") {
             val searchPage = SourceRepairEngine.findSearchPageUrl(probeHtml, current.bookSourceUrl)
             if (searchPage != null && searchPage != targetKey) {
-                val fetched = fetchHtmlWithUpgrade(current, searchPage, ::step)
+                val fetched = fetchHtmlWithUpgrade(current, searchPage, ::step, allowHuman = false)
                 if (!fetched.isNullOrBlank()) {
                     step("探针改抓搜索页", "$searchPage（${fetched.length} 字符）", true)
                     probeHtml = fetched
@@ -319,7 +319,8 @@ class SourceRepairRunner(
         step("首页", "${home.length} 字符", true)
         val searchPageUrl = SourceRepairEngine.findSearchPageUrl(home, siteUrl)
         val searchHtml = if (searchPageUrl != null && searchPageUrl != siteUrl) {
-            fetchHtmlWithUpgrade(working, searchPageUrl, ::step) ?: home
+            fetchHtmlWithUpgrade(working, searchPageUrl, ::step, allowHuman = false)
+                ?.takeIf { !SourceRepairEngine.needsHuman(it) } ?: home
         } else home
         val form = SourceRepairEngine.searchForm(searchHtml, siteUrl)
         step(
@@ -332,18 +333,36 @@ class SourceRepairRunner(
         // ---- 组 1：searchUrl ----
         val tried = mutableListOf<String>()
         var searchOk = false
+        // 已有 searchUrl 若本来就通过，就直接认定（别把好端端的换掉）
+        val existingSearch = SourceRepairEngine.currentValue(working, "searchUrl")
+        if (existingSearch.isNotBlank()) {
+            val text = runDebug(working, keyword).text
+            val (ok, why) = SourceRepairEngine.assertField("searchUrl", text)
+            // 留存引擎日志片段：否则判据说"失败"却看不出引擎到底取到了什么
+            val existingExcerpt = text.lines()
+                .filter { it.isNotBlank() && !it.startsWith("<") }
+                .takeLast(6).joinToString(" / ").take(400)
+            step("searchUrl（现有值）", "${existingSearch.take(150)}\n→ $why\n引擎日志：$existingExcerpt", ok)
+            if (ok) {
+                searchOk = true
+                groupsDone = 1
+                step("✅ 搜索组保持原样", "现有 searchUrl 通过，无需改动", true)
+            }
+        }
         val mechanical = buildList {
             form?.let { f ->
                 val path = f.action.removePrefix(siteUrl).ifBlank { "/" }
                 if (f.method == "POST") {
                     val body = (f.extra.map { "${it.key}=${it.value}" } + "${f.keyName}={{key}}").joinToString("&")
                     add("$path,{\"method\":\"POST\",\"body\":\"$body\",\"webView\":true,\"webViewDelayTime\":3000}")
+                    // 同一个表单再试一次 GET 形态：POST 会被 OkHttp 抢先发一次，CF 站必吃挑战页
+                    add("$path?${f.keyName}={{key}}&page={{page}},{\"webView\":true,\"webViewDelayTime\":3000}")
                 } else {
                     add("$path?${f.keyName}={{key}}&page={{page}},{\"webView\":true,\"webViewDelayTime\":3000}")
                 }
             }
         }
-        for (candidate in mechanical) {
+        if (!searchOk) for (candidate in mechanical) {
             val patched = SourceRepairEngine.applyPatch(working, "searchUrl", candidate)
             val text = runDebug(patched, keyword).text
             val (ok, why) = SourceRepairEngine.assertField("searchUrl", text)
@@ -386,7 +405,9 @@ class SourceRepairRunner(
         step("✅ 搜索组已写回", SourceRepairEngine.currentValue(working, "searchUrl").take(150), true)
 
         val searchDbg = runDebug(working, keyword)
-        val detailUrl = SourceRepairEngine.valueAfter(searchDbg.text, "获取详情页链接").takeIf { it.isNotBlank() }
+        val detailUrl = SourceRepairEngine.valueAfter(searchDbg.text, "获取详情页链接")
+            .ifEmpty { SourceRepairEngine.valueAfter(searchDbg.text, "重定向后地址") }  // 单命中→站点 302 到详情页
+            .takeIf { it.isNotBlank() }
             ?: return report(true, "搜索组已写回，但拿不到详情页链接（ruleSearch.bookUrl 需要单独修）")
         val detailHtml = fetchHtmlWithUpgrade(working, detailUrl, ::step)
             ?: return report(true, "搜索组已写回，详情页取不到")
@@ -541,7 +562,9 @@ class SourceRepairRunner(
     private suspend fun writeLoginCapability(sourceUrl: String, loginUrl: String) {
         val source = bookSourceRepository.getBookSource(sourceUrl) ?: return
         val patched = SourceRepairEngine.applyLoginCapability(source, loginUrl)
-        if (patched != source) {
+        val changed = patched.loginUi != source.loginUi || patched.loginCheckJs != source.loginCheckJs ||
+            patched.loginUrl != source.loginUrl || patched.enabledCookieJar != source.enabledCookieJar
+        if (changed) {
             withContext(Dispatchers.IO) { bookSourceRepository.insert(patched) }
         }
     }
@@ -560,6 +583,7 @@ class SourceRepairRunner(
         source: BookSource,
         url: String,
         step: (String, String, Boolean?) -> Unit,
+        allowHuman: Boolean = true,
     ): String? {
         val target = if (url.startsWith("http", ignoreCase = true)) url else source.bookSourceUrl
         var html = fetchHtml(source, target, 3000)
@@ -573,6 +597,11 @@ class SourceRepairRunner(
             html == null -> "取不到页面"
             SourceRepairEngine.isChallenge(html) -> "命中人机验证"
             else -> "页面疑似登录墙/空壳页（${html.length} 字节）"
+        }
+        if (!allowHuman) {
+            // 可选探测（例如抓搜索页）失败不该打断你：静默回退到已有页面
+            step("取页需要人工（跳过）", reason, null)
+            return html
         }
         step("人工登录", "$reason → 已弹出内置浏览器，请在页面里完成登录\n（右上角 ✓ 提交，返回=取消）\n$popupUrl", null)
         val verified = withContext(Dispatchers.IO) {
@@ -626,7 +655,17 @@ class SourceRepairRunner(
             }.getOrNull()
         }
 
+    /** 引擎取页：拿到 CF 挑战页且 key 未带选项时，自动补 webView 选项重试一次（与 PC 侧脚本同策略） */
     private suspend fun runDebug(source: BookSource, key: String): DebugResult {
+        val first = runDebugOnce(source, key)
+        if (SourceRepairEngine.isChallenge(first.text) && !key.contains(",{")) {
+            val retried = runDebugOnce(source, key + ",{\"webView\":true,\"webViewDelayTime\":3000}")
+            if (retried.text.isNotBlank()) return retried
+        }
+        return first
+    }
+
+    private suspend fun runDebugOnce(source: BookSource, key: String): DebugResult {
         val events = mutableListOf<Debug.Event>()
         val session = Debug.startDebug(scope, source, key)
         withTimeoutOrNull(120_000) {

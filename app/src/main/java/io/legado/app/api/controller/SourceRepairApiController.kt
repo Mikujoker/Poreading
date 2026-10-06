@@ -9,6 +9,7 @@ import io.legado.app.ui.book.source.repair.SourceRepairRunner
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonObject
 import org.koin.core.context.GlobalContext
+import kotlinx.coroutines.launch
 
 /**
  * 「AI 修源」的调试接口：
@@ -16,6 +17,26 @@ import org.koin.core.context.GlobalContext
  * - `GET /getRepairJournal`：读 app 内「AI 修复」界面最近一次运行的状态。
  */
 object SourceRepairApiController {
+
+    /** 长任务（整源生成）后台跑：避免 HTTP 长连接被掐，进度写 journal 供轮询 */
+    private val apiScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+    )
+
+    private fun reportMap(report: SourceRepairRunner.Report): Map<String, Any?> = linkedMapOf(
+        "running" to false,
+        "sourceUrl" to report.sourceUrl,
+        "ok" to report.ok,
+        "verdict" to report.verdict,
+        "field" to report.field,
+        "after" to report.after,
+        "groupsDone" to report.rounds,
+        "tokens" to report.tokens,
+        "steps" to report.steps.map {
+            linkedMapOf("title" to it.title, "detail" to it.detail, "ok" to it.ok)
+        },
+        "log" to report.log,
+    )
 
     fun getJournal(): ReturnData = ReturnData().setData(SourceRepairJournal.snapshot())
 
@@ -77,26 +98,40 @@ object SourceRepairApiController {
             aiProfileGateway = GlobalContext.get().get<AiProfileGateway>(),
             aiTextGateway = GlobalContext.get().get<AiTextGateway>(),
         )
-        val report = runner.generate(
-            request = SourceRepairRunner.GenerateRequest(
-                siteUrl = site,
-                keyword = keyword,
-                sourceName = body["name"]?.toString()?.trim().orEmpty(),
-                maxAttempts = (body["attempts"] as? Number)?.toInt() ?: 2,
-            )
+        val request = SourceRepairRunner.GenerateRequest(
+            siteUrl = site,
+            keyword = keyword,
+            sourceName = body["name"]?.toString()?.trim().orEmpty(),
+            maxAttempts = (body["attempts"] as? Number)?.toInt() ?: 2,
         )
+        if (body["wait"] as? Boolean == true) {
+            return ReturnData().setData(reportMap(runner.generate(request)))
+        }
+        // 默认异步：后台跑，进度与结论写进 journal，用 GET /getRepairJournal 轮询
+        val steps = java.util.concurrent.CopyOnWriteArrayList<Map<String, Any?>>()
+        apiScope.launch {
+            try {
+                val report = runner.generate(
+                    request = request,
+                    onStep = { step ->
+                        steps += linkedMapOf("title" to step.title, "detail" to step.detail, "ok" to step.ok)
+                        io.legado.app.ui.book.source.repair.SourceRepairJournal.publishApi(
+                            linkedMapOf("running" to true, "sourceUrl" to site, "steps" to steps.toList())
+                        )
+                    },
+                )
+                io.legado.app.ui.book.source.repair.SourceRepairJournal.publishApi(reportMap(report))
+            } catch (e: Exception) {
+                io.legado.app.ui.book.source.repair.SourceRepairJournal.publishApi(
+                    linkedMapOf(
+                        "running" to false, "ok" to false,
+                        "verdict" to "出错：${e.localizedMessage ?: e.javaClass.simpleName}",
+                    )
+                )
+            }
+        }
         return ReturnData().setData(
-            linkedMapOf(
-                "sourceUrl" to report.sourceUrl,
-                "ok" to report.ok,
-                "verdict" to report.verdict,
-                "groupsDone" to report.rounds,
-                "tokens" to report.tokens,
-                "steps" to report.steps.map {
-                    linkedMapOf("title" to it.title, "detail" to it.detail, "ok" to it.ok)
-                },
-                "log" to report.log,
-            )
+            linkedMapOf("started" to true, "hint" to "GET /getRepairJournal 轮询进度与结论")
         )
     }
 
@@ -123,7 +158,48 @@ object SourceRepairApiController {
                 "loginUi" to patched.loginUi,
                 "loginCheckJs" to patched.loginCheckJs,
                 "enabledCookieJar" to patched.enabledCookieJar,
-                "changed" to (patched != source),
+                "changed" to (patched.loginUi != source.loginUi || patched.loginCheckJs != source.loginCheckJs ||
+                    patched.loginUrl != source.loginUrl || patched.enabledCookieJar != source.enabledCookieJar),
+            )
+        )
+    }
+
+    /**
+     * body: {"enabledOnly":true,"dryRun":false}
+     * 批量补齐「有 loginUrl 但缺 loginUi / loginCheckJs / cookieJar」的书源 —— 这正是"每次都问登录"的根源。
+     * 只动登录字段，不碰任何规则。
+     */
+    suspend fun fillAllLoginFields(postData: String?): ReturnData {
+        val body = GSON.fromJsonObject<Map<String, Any?>>(postData ?: "{}").getOrNull().orEmpty()
+        val enabledOnly = body["enabledOnly"] as? Boolean ?: true
+        val dryRun = body["dryRun"] as? Boolean ?: false
+        val all = io.legado.app.data.appDb.bookSourceDao.all
+        val candidates = all.filter { source ->
+            (source.loginUrl?.isNotBlank() == true) && (!enabledOnly || source.enabled == true)
+        }
+        val toFix = mutableListOf<io.legado.app.data.entities.BookSource>()
+        val samples = mutableListOf<String>()
+        candidates.forEach { source ->
+            val patched = io.legado.app.ui.book.source.repair.SourceRepairEngine.applyLoginCapability(
+                source, source.loginUrl.orEmpty()
+            )
+            val changed = patched.loginUi != source.loginUi || patched.loginCheckJs != source.loginCheckJs ||
+                patched.loginUrl != source.loginUrl || patched.enabledCookieJar != source.enabledCookieJar
+            if (changed) {
+                toFix += patched
+                if (samples.size < 8) samples += source.bookSourceName
+            }
+        }
+        if (!dryRun && toFix.isNotEmpty()) {
+            io.legado.app.data.appDb.bookSourceDao.insert(*toFix.toTypedArray())
+        }
+        return ReturnData().setData(
+            linkedMapOf(
+                "totalSources" to all.size,
+                "withLoginUrl" to candidates.size,
+                "fixed" to toFix.size,
+                "dryRun" to dryRun,
+                "samples" to samples,
             )
         )
     }

@@ -18,24 +18,39 @@ object SourceRepairJournal {
     }
 
     fun snapshot(): Map<String, Any?> {
-        val state = latest ?: return linkedMapOf("hasRun" to false)
+        val api = apiSnapshot
+        val state = latest ?: return api ?: linkedMapOf("hasRun" to false)
         return linkedMapOf(
             "hasRun" to true,
             "updatedAt" to updatedAt,
-            "sourceName" to state.sourceName,
-            "sourceUrl" to state.sourceUrl,
-            "query" to state.query,
-            "target" to state.target.name,
-            "running" to state.running,
-            "round" to state.round,
-            "maxRounds" to state.maxRounds,
-            "usedTokens" to state.usedTokens,
-            "ok" to state.ok,
-            "verdict" to state.verdict,
-            "log" to state.log,
-            "steps" to state.steps.map {
-                linkedMapOf("title" to it.title, "detail" to it.detail, "ok" to it.ok)
-            },
+            "ui" to uiSnapshot(state),
+            "api" to api,
         )
     }
+
+    private fun uiSnapshot(state: SourceRepairUiState): Map<String, Any?> = linkedMapOf(
+        "sourceName" to state.sourceName,
+        "sourceUrl" to state.sourceUrl,
+        "query" to state.query,
+        "target" to state.target.name,
+        "running" to state.running,
+        "round" to state.round,
+        "maxRounds" to state.maxRounds,
+        "usedTokens" to state.usedTokens,
+        "ok" to state.ok,
+        "verdict" to state.verdict,
+        "log" to state.log,
+        "steps" to state.steps.map {
+            linkedMapOf("title" to it.title, "detail" to it.detail, "ok" to it.ok)
+        },
+    )
+    @Volatile
+    private var apiSnapshot: Map<String, Any?>? = null
+
+    /** 后台任务（如整源生成）的进度/结果快照；与界面状态分开存 */
+    fun publishApi(snapshot: Map<String, Any?>) {
+        apiSnapshot = snapshot
+        updatedAt = System.currentTimeMillis()
+    }
+
 }

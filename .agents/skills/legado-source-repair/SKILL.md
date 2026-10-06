@@ -40,6 +40,11 @@ app 侧 HTTP 原语（`http://127.0.0.1:1122`）：
 | `GET /verifyLogin?source=&url=&title=` | 拉起**内置浏览器**做人工验证/登录（阻塞到用户完成；右上角 ✓ 提交、返回=取消），完成后 cookie 落库 |
 | `POST /debugBookSource {tag,key,timeoutMs}` | **端上真引擎**：一次跑完 搜索→详情→目录→正文，回结构化事件 |
 | `GET /getCookie?url=` | 登录态三层对照：`webViewCookie`/`jarCookie`/`dbCookie` |
+| `POST /repairSource {source,key,field?,page?,rounds?}` | 单字段/端点修复循环，**直接回完整 JSON 报告**（不用截图） |
+| `POST /generateSource {site,key,name?,attempts?}` | **整源生成/修复**：搜索→详情→目录→正文，**每组通过即写回** |
+| `POST /fillLoginFields {source,loginUrl?}` | 只补登录能力字段（loginUrl/loginUi/loginCheckJs/cookieJar），不动规则 |
+| `GET /getRepairJournal` | 读 app 内「AI 修复」最近一次运行状态（步骤/判据/结论） |
+| `POST /saveAiProfile` / `GET /getAiProfile` | 配 / 读 AI 对话模型（key 只写不读） |
 | `GET /getBookSource?url=` / `POST /saveBookSource` | 读写书源（写回/回滚） |
 | `GET /getBookshelf` / `POST /saveBook` / `GET /image?url=<bookUrl>&path=<img src>` | 读写书目、取图 |
 
@@ -130,3 +135,96 @@ app 侧 HTTP 原语（`http://127.0.0.1:1122`）：
 
 - `references/wenku8-v11-retro.md` —— 实战复盘：wenku8 v5→v11 每个症状→根因→修法，含最终可用源
 - `../../AI-SOURCE-AGENT.md` —— 五层架构、CF L-1~L6、LLM 单字段 patch 契约
+
+## app 内流程（手机全流程，2026-10-07 落地）
+
+入口：书源管理 → 行菜单「**AI 修复**」→ 目的地 `source/book/repair`。实现都在
+`app/src/main/java/io/legado/app/ui/book/source/repair/`：
+`SourceRepairViewModel`（循环/预算）、`SourceRepairEngine`（判据/探针/提示词/语法预检）、`SourceRepairScreen`（界面）。
+它复用 app 里现成的三件东西：`Debug`（端上真引擎）、`AnalyzeUrl`（WebView 取页）、`SourceVerificationHelp`（内置浏览器人工验证）、
+`AiTextGateway` + `AiProfileGateway`（LLM，key 存设备加密区，不出手机）。
+
+**流程**（与 PC 侧脚本同一套判据）
+
+0. 出口自检：抓 `cloudflare.com/cdn-cgi/trace` 看 `loc`/`colo`（机房 IP 直接判死）。
+1. **取页分级**：WebView 抓 → 拉长延迟重试 → 仍不行就**自动弹出内置浏览器**让人工登录。
+   需要人工的判定 = 挑战页标记 / **登录墙**（有 `type="password"` 或「请先登录」话术）/ **空壳页**（< 400 字节）。
+   弹窗优先用源的 `loginUrl`；关键词路径也会弹（非 http 输入一律用站点首页兜底，绝不把关键词当网址打开）；
+   登录产生的 cookie 落 jar，之后自动重试。
+2. **全链自检**：跑一次 `Debug`，按自动挑顺序（搜索 → 详情 → 目录 → 正文）取出**第一个失败字段**。
+3. **自主换路**：目标页拿不到 → 改抓**站点首页**当探针，目标字段切成 `searchUrl`，让 LLM 反推真实搜索端点
+   （探针会列 `<form action/method/字段>`、含 `search` 的 URL 片段、站内搜索链接）。
+4. **循环**（默认 3 轮 / 10 分钟 / 200k tokens）：机械探针 → LLM 单字段 patch（提示词含规则语法速查 + 本地语法预检）
+   → **只在端上真引擎断言通过后才写回**；失败写入 history 换策略重试；连续两次空提案 → 判定"页面没有该元素"，保持现状。
+
+**可修字段**：`searchUrl`、`ruleSearch.{bookList,name,bookUrl,coverUrl}`、
+`ruleBookInfo.{name,author,intro,coverUrl,tocUrl}`、`ruleToc.{chapterList,chapterUrl,chapterName}`、`ruleContent.content`。
+
+**前置与坑**
+- app 里必须先配好 AI 对话模型（「我的 → AI 设置」）；没配时流程会在结论里明确提示，不会假装在修。
+- 端上引擎是**全局单会话**：跑修源会顶掉 app 内调试页正在跑的会话。
+- 实测过的自主性边界（2026-10-07，bilinovel）：自动取页拿到真实搜索页 71 KB、自动挑出 `ruleSearch.bookList` ✓；
+  该站搜索是 JS/POST 形态（GET `/search/<key>_<page>.html` 返回 39 字节空壳），正是 `searchUrl` 这条自主换路的目标。
+
+## 整源生成 + 登录能力（2026-10-07，app 内）
+
+**整源生成** `POST /generateSource {site,key}`（`SourceRepairRunner.generate()`）：
+给站点 URL + 一个关键词，按 `首页/搜索页 → 搜索组 → 详情组 → 目录组 → 正文组` 逐组生成规则，
+**每组一通过就立刻写回**（不是"全通才写"），每组最多 2 次 LLM 修正。
+
+- 搜索组：先从页面机械抠搜索表单（`searchForm()`：action / method / 关键词字段 / 隐藏字段）→ 直接拼 `searchUrl` 交给引擎验；
+  不通过才问 LLM；仍不通过则走**端点变体扫描**（`searchUrlVariants()`：`search_guard=css` 降级、POST↔GET、
+  页面里出现的 `/search/x_{{page}}.html` 形态）——这条是确定性的，专治 JS 守卫站的降级入口。
+- 详情/目录/正文组：机械探针 → LLM 出**一整组 JSON** → 端上真引擎断言 → 通过写回；失败把「引擎日志片段」回喂给下一轮。
+- **登录能力**：任何取页遇到挑战页 / 登录墙（有 `password` 框或「请先登录」）/ 空壳页（<400 字节），
+  就弹内置浏览器；你登录完**自动**补齐并写回 `loginUrl`（若空）+ `loginUi`（账号/密码）+
+  `loginCheckJs`（`退出登录`/`logout`/`个人中心` 检测）+ `enabledCookieJar=true` —— 对齐 wenku8 的做法：
+  **登录一次、长期复用**。已经有会话只想补字段时用 `POST /fillLoginFields`。
+
+**判据修正（重点）**：`bookList`/`searchUrl` 不能只看 `列表大小>0`——
+站点把**唯一命中** 302 到详情页时列表本就为空，Legado 会用详情页兜底解析出 1 本；
+所以判据是「`列表大小>0` **或** `书籍总数≥1`」。判错会把正常行为判成失败，逼 LLM 反复改一个没坏的选择器（已踩过）。
+
+**报告直达**：`/repairSource`、`/generateSource` 都返回 `steps[]`（每步 ok + 证据）与 `log`，
+`/getRepairJournal` 读界面运行状态 —— **验证一律走 JSON，不截图**。
+
+## 登录类问题速查（最常见的三种，2026-10-07 实测）
+
+**先分清两种"被挡"**：人机验证（CF，看 IP/指纹）≠ 登录（看账号/cookie）。前者靠真人过验证，后者靠 cookie 落库 + 能判定登录态。
+
+| 症状 | 根因 | 修法 |
+|---|---|---|
+| 每次点「登录」都要重输密码；登录页永远出现；登录完 app 仍认不出"已登录" | 源里**有 `loginUrl` 但缺 `loginUi`（登录表单）和 `loginCheckJs`（登录态检测）** —— 库里有大量这种源（实测 m.wenkuchina / m.linovelib / www.linovelib …） | `POST /fillLoginFields {source}` 一次补齐三件套：`loginUrl` + `loginUi`（账号/密码）+ `loginCheckJs`（`退出登录`/`logout`/`个人中心` 检测）；运行中若要你登录，登录成功后**也会自动写回** |
+| 登录了，但读正文/目录仍提示要登录 | `enabledCookieJar=false`（登录 cookie 根本不参与请求），或 jar 里 cookie 是**空串**（历史 bug：读不到时写空覆盖） | 打开 cookieJar；用 `GET /getCookie` 做三层对照：`webViewCookie` 有、`jarCookie`/`dbCookie` 空 = 没落库；空串覆盖已修（空值不写 + 主线程读取） |
+| 过了 CF 验证/登录，过一会儿又不行 | `cf_clearance` 绑 **IP + UA** 且有 TTL；换网络或过期即失效 | 重新点一次（一次人工、长期复用）；别挂梯子；JS 计算的搜索见下一节 |
+| 站点根本不出现登录页，但内容要登录 | 源没配 `loginUrl` | 用 `SourceRepairEngine.loginLinks()` 从页面链接里找登录页（href/text 含 login/登录）；或让流程遇到登录墙时弹内置浏览器，登录后自动写回 |
+
+**机械识别"这站需要登录"**（判据，别靠感觉）：
+1. 页面里有 `type="password"` 或「请先登录 / 登录后可见 / 用户登录」→ **登录墙**；
+2. 内容页返回的正文里出现登录提示、或 `书籍总数:0` 且页面是登录表单 → 需要登录；
+3. 首页/任意页里有 href 或文本含 `login`/`登录` 的链接 → 那就是 `loginUrl` 候选。
+
+**处理顺序**（照做即可）：
+1. 取页 → 命中上面 1/2 → 弹内置浏览器（`SourceVerificationHelp`，优先打开 `loginUrl`，非 http 输入用站点首页兜底）；
+2. 你登录完 → 自动写回 `loginUi` + `loginCheckJs` + `enabledCookieJar=true`；
+3. 立刻重试取页并**明确回报**：`已拿到可用页面｜登录 cookie N 字节` 或 `仍然拿不到｜登录 cookie 0 字节（需要再登一次）`；
+4. 要独立确认用 `GET /getCookie?url=`（三层）与 `/fillLoginFields`（补配）。
+
+## JS 计算的搜索结果（jieqi / search_guard 类，2026-10-07 实测 bilinovel）
+
+**症状**：源里 `searchUrl` 是 `<js>` 分支（第 1 页 POST `/search.html`），引擎日志里能看到
+`≡获取成功:/search.html,{"body":"searchkey=…","method":"POST"}`，紧接着 `bookList` 的 JS 打出
+`jieqiSearchCss=…/jieqiSearchJs=…` 然后 `└列表为空,按详情页解析` → `◇书籍总数:0` → `︽未获取到书籍`。
+
+**根因**：站点把搜索结果交给**前端 JS 计算**（`search_guard=js` 守卫），服务端返回的是壳页面。
+所以换选择器、换 `search_guard=css/js`、换 GET/POST 全都拿不到列表——**这不是规则能修的类别**。
+
+**正确处置**（按代价递增）：
+1. **认出来并认输**：报告 `needs_human` + 归类「JS 计算」，不要浪费 N 轮去改选择器；
+   判据侧加了机械提示：页面含 `search_guard` / `jieqiSearch` / `__cf` / `challenge-platform` → 探针直接告警。
+2. **webJs 路线**：`searchUrl` 用真实页面 + `"webJs":"<在 WebView 里执行站点自己的搜索并等结果渲染>"`，
+   让 WebView 替我们跑站点的 JS（拿渲染后的 DOM），规则再针对渲染后结构写。
+3. **模仿 XHR**：从站点 JS 里找出它真正的搜索接口（`ajax`/`fetch` 目标 + 参数 + 签名），
+   写成 `@js:` 规则直接调；这需要读站点 JS，属于"agent/MCP 实操"范畴。
+4. 详情/目录/正文通常**不受影响**（只有搜索走 JS）——可以先靠"添加网址"把书加进来读，
+   把搜索留作已知缺陷，别为它把整源改坏。
