@@ -22,6 +22,7 @@ import io.legado.app.api.controller.RssSourceController
 import io.legado.app.api.controller.SourceDebugController
 import io.legado.app.api.controller.AiProfileController
 import io.legado.app.api.controller.SourceRepairApiController
+import io.legado.app.api.controller.LocalBookApiController
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.service.WebService
 import io.legado.app.utils.LogUtils
@@ -146,6 +147,7 @@ class KtorServer(private val port: Int) {
                 post("/generateSource") { handlePost { SourceRepairApiController.generate(it) } }
                 post("/fillLoginFields") { handlePost { SourceRepairApiController.fillLoginFields(it) } }
                 post("/fillAllLoginFields") { handlePost { SourceRepairApiController.fillAllLoginFields(it) } }
+                post("/renameLocalBooks") { handlePost { LocalBookApiController.renameLocalBooks(it) } }
                 post("/saveAiProfile") { handlePost { AiProfileController.saveDefaultChat(it) } }
                 get("/getAiProfile") { handleGet { AiProfileController.getDefaultChat() } }
                 get("/verifyLogin") { handleGet { SourceDebugController.verifyLogin(it) } }

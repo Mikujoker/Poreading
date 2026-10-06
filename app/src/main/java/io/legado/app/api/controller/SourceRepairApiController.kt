@@ -10,6 +10,7 @@ import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonObject
 import org.koin.core.context.GlobalContext
 import kotlinx.coroutines.launch
+import io.legado.app.api.controller.LocalBookApiController
 
 /**
  * 「AI 修源」的调试接口：
