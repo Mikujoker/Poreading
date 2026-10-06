@@ -98,7 +98,19 @@ class TextFile(private var book: Book) {
             }
         }
         val volumePattern = getVolumePattern(book.tocUrl)
-        val (toc, wordCount) = analyze(Regex(book.tocUrl, RegexOption.MULTILINE), volumePattern)
+        val analyzed = analyze(Regex(book.tocUrl, RegexOption.MULTILINE), volumePattern)
+        var toc = analyzed.first
+        var wordCount = analyzed.second
+        if (toc.isEmpty()) {
+            // 目录规则在正文里一条都没匹配上（章标格式特殊，例如 "#第一章·…"、"第一章␣␣…"）：
+            // 退化成"无目录"分章（按 maxLengthWithNoToc 切块），至少保证能读，
+            // 而不是把 TocEmptyException 抛给上层变成"目录为空、整本打不开"
+            AppLog.put("TXT 目录规则无匹配，按无目录分章：${book.name}")
+            book.tocUrl = ""
+            val fallback = analyze()
+            toc = fallback.first
+            wordCount = fallback.second
+        }
         book.wordCount = StringUtils.wordCountFormat(wordCount)
         book.upKind()
         toc.forEachIndexed { index, bookChapter ->
