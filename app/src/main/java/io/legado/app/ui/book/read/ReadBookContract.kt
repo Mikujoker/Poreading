@@ -473,6 +473,8 @@ sealed interface ReadBookIntent {
     data object NextChapter : ReadBookIntent
     data object PrevChapter : ReadBookIntent
     data class OpenChapter(val index: Int, val pos: Int = 0) : ReadBookIntent
+    /** Readium 阅读路径回报位置：同章只更新会话位置，跨章才真的换章。 */
+    data class SaveReadingPosition(val chapterIndex: Int, val chapterPos: Int) : ReadBookIntent
     data class SkipToPage(val pageIndex: Int) : ReadBookIntent
 
     // Menu

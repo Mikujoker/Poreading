@@ -140,8 +140,18 @@ class BookInfoEditViewModel(
         val target = book ?: return false
         if (!target.isLocal) return false
         val sourceFile = java.io.File(target.bookUrl)
-        if (!sourceFile.isFile) return false
-        val fileName = sourceFile.name.substringBeforeLast('.')
+        // SAF（content://）导入的书：裸路径的 isFile 恒为 false，会永远不问"要不要一起改名"
+        val fileName = if (target.bookUrl.startsWith("content://")) {
+            runCatching {
+                androidx.documentfile.provider.DocumentFile
+                    .fromSingleUri(splitties.init.appCtx, android.net.Uri.parse(target.bookUrl))
+                    ?.name
+            }.getOrNull()?.substringBeforeLast('.') ?: return false
+        } else {
+            val sourceFile = java.io.File(target.bookUrl)
+            if (!sourceFile.isFile) return false
+            sourceFile.name.substringBeforeLast('.')
+        }
         return current.name.trim() != fileName
     }
 

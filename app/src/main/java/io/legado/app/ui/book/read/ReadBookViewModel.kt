@@ -948,6 +948,16 @@ class ReadBookViewModel(
                 ReadBook.saveReadingAnchorBeforeChapterJump(intent.index, intent.chapterPos)
                 openChapter(intent.index, intent.chapterPos)
             }
+            is ReadBookIntent.SaveReadingPosition -> {
+                if (intent.chapterIndex != ReadBook.durChapterIndex) {
+                    ReadBook.saveReadingAnchorBeforeChapterJump(intent.chapterIndex, intent.chapterPos)
+                    openChapter(intent.chapterIndex, intent.chapterPos)
+                } else {
+                    // 同一章内滚动：只更新会话位置（publish=false 避免滚动过程中重建 UiState；
+                    // durChapterPos 对 epub 是「章内进度 ×10000」）
+                    ReadBook.updateReadingPosition(intent.chapterPos, publish = false)
+                }
+            }
             is ReadBookIntent.SourceEditResult -> upBookSource()
             is ReadBookIntent.ReplaceRuleResult -> replaceRuleDelegate.rulesChanged()
             is ReadBookIntent.BookInfoResult -> {

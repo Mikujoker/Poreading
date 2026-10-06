@@ -32,6 +32,44 @@ object LocalBookRename {
         val oldUrl = book.bookUrl
         val oldFile = File(oldUrl)
         // 只处理「裸路径指向真实文件」的本地书；SAF 之类一律不动
+        // SAF（content://）导入的本地书：裸路径判断会直接跳过，这里自己改名并搬迁库内引用
+        if (oldUrl.startsWith("content://")) {
+            val context = appCtx
+            val uri = android.net.Uri.parse(oldUrl)
+            val safeName = illegalChars.replace(newName.trim(), "_").take(80)
+            if (safeName.isBlank()) return@withContext bail("新书名为空")
+            val doc = androidx.documentfile.provider.DocumentFile.fromSingleUri(context, uri)
+                ?: androidx.documentfile.provider.DocumentFile.fromTreeUri(context, uri)
+                ?: return@withContext bail("打不开 SAF 文档：$oldUrl")
+            val oldFileName = doc.name ?: return@withContext bail("拿不到 SAF 文档名：$oldUrl")
+            val safExtension = oldFileName.substringAfterLast('.', "")
+            val newFileName = if (safExtension.isBlank()) safeName else "$safeName.$safExtension"
+            if (newFileName == oldFileName) return@withContext null
+            val renamed = runCatching {
+                android.provider.DocumentsContract.renameDocument(
+                    context.contentResolver,
+                    uri,
+                    newFileName,
+                )
+            }.getOrNull() ?: return@withContext bail("SAF 改名失败：$oldFileName → $newFileName")
+            val newUrl = renamed.toString()
+            runCatching {
+                migrateReferences(oldUrl, newUrl, newFileName, book.name, newName.trim(), book.author)
+            }.onFailure {
+                it.printOnDebug()
+                runCatching {
+                    android.provider.DocumentsContract.renameDocument(
+                        context.contentResolver,
+                        renamed,
+                        oldFileName,
+                    )
+                }
+                AppLog.put("改名连源文件失败（SAF，库未搬迁，文件名已改回）：$it", it, true)
+                return@withContext null
+            }
+            return@withContext newUrl
+        }
+        // 只处理「裸路径指向真实文件」的本地书；SAF 之类一律不动
         if (!oldFile.isFile) return@withContext bail("源文件不存在或不可读：$oldUrl")
 
         val safeName = illegalChars.replace(newName.trim(), "_").take(80)

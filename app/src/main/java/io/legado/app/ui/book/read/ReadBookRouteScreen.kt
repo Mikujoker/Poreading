@@ -143,6 +143,10 @@ interface ReadBookInputHandler {
     fun toggleMenu()
 }
 
+/** epub 的章内进度按 0..10000 存进 durChapterPos（0%..100%），只用于 Readium 阅读路径。 */
+private const val EPUB_PROGRESS_SCALE = 10_000
+
+
 /**
  * Outer wrapper for ReadBookScreen — handles system UI state sync
  * and ActivityResult launcher registration.
@@ -169,23 +173,131 @@ fun ReadBookRouteScreen(
     // begin 之前的空档，说明那部分耗时在本屏之外（导航宿主 / 共享转场层）。
     ReaderPerfTrace.marker("compose.screen.begin")
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // epub 页也要读：菜单配色跟随阅读背景（ReadBookColorTheme），顺序必须早于下面的早返回
+    val readPreferences by viewModel.readPreferences.collectAsStateWithLifecycle()
+    val canHandleBack = isTopRoute
+    val canMorphBack = canHandleBack &&
+            state.inBookshelf &&
+            ReadBook.inBookshelf &&
+            state.activeSheet == null &&
+            !state.isShowingSearchResult &&
+            !state.isAutoPage &&
+            !state.menuState.canNavigateBack &&
+            state.activeDialog == null
+
+    var isDismissed by remember { mutableStateOf(false) }
+    var collapseTrigger by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    val performExit: () -> Boolean = {
+        if (isDismissed) {
+            true
+        } else {
+            onNavigateBack().also { popped ->
+                if (popped) isDismissed = true
+            }
+        }
+    }
+
+    val requestClose: () -> Unit = {
+        if (!isDismissed) {
+            viewModel.onIntent(ReadBookIntent.CloseReadBook())
+        }
+    }
     // 本地 epub：整屏交给 Readium 原版排版（**独立页面，不叠加自绘画布** —— v1 就死在叠加接法上）
     state.book?.takeIf { it.isEpub }?.let { epubBook ->
-        io.legado.app.feature.reader.readium.ReadiumReaderScreen(
-            book = epubBook,
-            initialChapterIndex = state.durChapterIndex,
-            // 滚动模式（Readium 的连续滚动），字号跟随阅读设置
-            fontSizeSp = state.styleConfig.textSize.toDouble(),
-            // 翻到新章节就写回进度（章节级），下次打开续读
-            onProgress = { index ->
-                // ReadBook 的会话字段是 private set：外部只能走 VM 的语义化命令
-                viewModel.onIntent(ReadBookIntent.OpenChapter(index))
-            },
-            modifier = androidx.compose.ui.Modifier.fillMaxSize(),
-        )
+        val styleConfig = state.styleConfig
+        // 底色/文字色和 txt 阅读器同一处解析（含日/夜/墨水屏 + 阅读器自己的日/夜覆盖）
+        val palette = rememberReaderPagePalette(styleConfig)
+        // 和 txt 一样进 BookMorphHost：系统返回手势带着封面 morph 滑回书架。
+        // 返回处理必须在早返回之前铺好，否则 epub 页没人接管返回手势（右滑直接回桌面）。
+        BookMorphHost(
+            anchorKey = sharedCoverKey,
+            backgroundColor = Color(
+                palette.backgroundArgb
+                    ?: if (palette.isNight) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+            ),
+            backEnabled = canMorphBack,
+            predictiveBackEnabled = true,
+            onDismiss = performExit,
+            // 手势返回交给宿主自己播放收起动画（null = 不需要业务授权，动画结束由 onDismiss 收尾）
+            onBackRequested = null,
+        ) { onCollapse ->
+            // epub 关闭不需要二次确认：onCollapse 先当 key 用掉，保留这个信号口
+            LaunchedEffect(onCollapse) {}
+            // 键返回（非手势）和 txt 一样兜底退出这一屏；手势返回交给 BookMorphHost 播 morph
+            BackHandler(enabled = canHandleBack && !canMorphBack) {
+                val collapse = collapseTrigger
+                if (collapse != null) collapse() else performExit()
+            }
+            // epub 内容是真实 WebView：把 morph 的"内容面板"变换算成 View 级属性交给它
+            // （Compose 的图形层裁剪/变换对互操作 View 不保证生效，否则就是"拖了不缩"）
+            val epubMorph = LocalBookMorph.current
+            val epubScreen = epubMorph?.screenBounds
+            val epubFrameBounds = epubMorph?.panelFrame()?.bounds
+            // 只在几何数据健全时变换：frame/screen 缺失或除出非有限值时一律 identity，
+            // 否则 WebView 会被设成 NaN/0 尺寸而整屏变黑（踩过）
+            val epubContentTransform = if (
+                epubMorph == null || epubScreen == null || epubFrameBounds == null ||
+                epubScreen.width <= 1f || epubScreen.height <= 1f ||
+                epubFrameBounds.width <= 1f || epubFrameBounds.height <= 1f ||
+                epubFrameBounds.width > epubScreen.width * 3f ||
+                epubFrameBounds.height > epubScreen.height * 3f
+            ) {
+                null
+            } else {
+                val scaleX = (epubFrameBounds.width / epubScreen.width).coerceIn(0.2f, 1f)
+                val scaleY = (epubFrameBounds.height / epubScreen.height).coerceIn(0.2f, 1f)
+                io.legado.app.feature.reader.readium.ReadiumContentTransform(
+                    scaleX = scaleX,
+                    scaleY = scaleY,
+                    translationX = (epubFrameBounds.center.x - epubScreen.center.x).takeIf { it.isFinite() } ?: 0f,
+                    translationY = (epubFrameBounds.center.y - epubScreen.center.y).takeIf { it.isFinite() } ?: 0f,
+                    alpha = epubMorph.veil.takeIf { it.isFinite() }?.coerceIn(0.05f, 1f) ?: 1f,
+                )
+            }
+            // 复用 txt 阅读菜单的配色：菜单/底栏跟随阅读背景主题（纯黑正文配蓝灰菜单会很割裂）
+            ReadBookColorTheme(
+                styleConfig = styleConfig,
+            preferences = readPreferences,
+            isDarkTheme = palette.isNight,
+        ) {
+            io.legado.app.feature.reader.readium.ReadiumReaderScreen(
+                book = epubBook,
+                initialChapterIndex = state.durChapterIndex,
+                // epub 的 durChapterPos 按「章内进度 ×10000」解释（见下面 onProgress 的回写）
+                initialProgression = state.durChapterPos.toDouble() / EPUB_PROGRESS_SCALE,
+                fontSizeSp = styleConfig.textSize,
+                backgroundColorArgb = palette.backgroundArgb,
+                textColorArgb = palette.textColorArgb,
+                isNight = palette.isNight,
+                // 走宿主收起动画（飞行封面回书架），没拿到触发器时才直接退出
+                onBack = {
+                    val collapse = collapseTrigger
+                    if (collapse != null) collapse() else performExit()
+                },
+                onTextSizeChange = {
+                    viewModel.onIntent(ReadBookIntent.UpdateConfig(ConfigUpdate.TextSize(it)))
+                },
+                onToggleDayNight = { viewModel.onIntent(ReadBookIntent.ToggleDayNight) },
+                onProgress = { index, progression ->
+                    // ReadBook 的会话字段（durChapterIndex/durChapterPos）是 private set：只能走 VM 的语义化命令。
+                    // 章内滚动只更新会话位置、跨章才真的换章（分流在 VM 里）
+                    viewModel.onIntent(
+                        ReadBookIntent.SaveReadingPosition(
+                            chapterIndex = index,
+                            chapterPos = kotlin.math.round(
+                                progression.coerceIn(0.0, 1.0) * EPUB_PROGRESS_SCALE
+                            ).toInt(),
+                        )
+                    )
+                },
+                contentTransform = epubContentTransform,
+                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+            )
+            }
+        }
         return
     }
-    val readPreferences by viewModel.readPreferences.collectAsStateWithLifecycle()
     val markingState by viewModel.markingState.collectAsStateWithLifecycle()
     val readerRenderState by readerSessionViewModel.uiState.collectAsStateWithLifecycle()
     val readerPageWindow = readerRenderState.pageWindow
@@ -225,34 +337,6 @@ fun ReadBookRouteScreen(
                     !state.menuConfig.readMenuFloatingBottomBar &&
                             state.menuConfig.readMenuBottomBarBlurMode == ReadMenuBlurMode.LiquidGlass
                     )
-    val canHandleBack = isTopRoute
-    val canMorphBack = canHandleBack &&
-            state.inBookshelf &&
-            ReadBook.inBookshelf &&
-            state.activeSheet == null &&
-            !state.isShowingSearchResult &&
-            !state.isAutoPage &&
-            !state.menuState.canNavigateBack &&
-            state.activeDialog == null
-
-    var isDismissed by remember { mutableStateOf(false) }
-    var collapseTrigger by remember { mutableStateOf<(() -> Unit)?>(null) }
-
-    val performExit: () -> Boolean = {
-        if (isDismissed) {
-            true
-        } else {
-            onNavigateBack().also { popped ->
-                if (popped) isDismissed = true
-            }
-        }
-    }
-
-    val requestClose: () -> Unit = {
-        if (!isDismissed) {
-            viewModel.onIntent(ReadBookIntent.CloseReadBook())
-        }
-    }
 
     BackHandler(enabled = canHandleBack && !canMorphBack) {
         when {

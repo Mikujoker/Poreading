@@ -348,3 +348,40 @@ private suspend fun extractCurrentReadBackgroundSeed(isDarkTheme: Boolean): Colo
 private fun String.toColorOrNull(): Color? {
     return runCatching { Color(toColorInt()) }.getOrNull()
 }
+
+/** EPUB（Readium）页要的阅读底色/文字色：和 txt 阅读器走同一处解析（含日/夜/墨水屏与阅读器自己的日/夜覆盖）。 */
+data class ReaderPagePalette(
+    val isNight: Boolean,
+    /** 纯色底色；设置的是背景图时返回 null（WebView 画不出图，交给阅读引擎的主题色） */
+    val backgroundArgb: Int?,
+    val textColorArgb: Int?,
+)
+
+@Composable
+fun rememberReaderPagePalette(styleConfig: ReadBookStyleConfig): ReaderPagePalette {
+    val isNight = ReadStyleResolver.isNightTheme()
+    val mode = ReadStyleResolver.currentMode(isNight)
+    return remember(styleConfig, isNight, mode) {
+        val background = runCatching {
+            ReadStyleResolver.currentBackground(ReadBookConfig.durConfig, isNight)
+        }.getOrNull()
+        ReaderPagePalette(
+            isNight = isNight,
+            backgroundArgb = background
+                ?.takeIf { it.type == 0 }
+                ?.value
+                ?.let(::parseReadColor),
+            textColorArgb = when (mode) {
+                ReadStyleResolver.ReadStyleMode.Day -> styleConfig.textColor
+                ReadStyleResolver.ReadStyleMode.Night -> styleConfig.textColorNight
+                ReadStyleResolver.ReadStyleMode.EInk -> styleConfig.textColorEInk
+            }.let(::parseReadColor),
+        )
+    }
+}
+
+/** 阅读设置里的颜色是 "#RRGGBB"；解析失败返回 null，交给阅读引擎的主题默认色。 */
+internal fun parseReadColor(value: String?): Int? =
+    value?.takeIf { it.isNotBlank() }?.let {
+        runCatching { android.graphics.Color.parseColor(it.trim()) }.getOrNull()
+    }

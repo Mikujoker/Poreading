@@ -266,7 +266,11 @@ class ImportBookViewModel(
 
     private fun initialize() {
         val defaultPath = otherSettingsGateway.currentSettings.defaultBookTreeUri?.takeIf { it.isUri() }
-        val effectiveDefaultPath = defaultPath ?: firstPersistedTreeUri()?.toString()
+        // 默认存书目录固定为 legado/novel（裸路径 trySetRootDoc 也认），首次导入不再强制弹目录选择器；
+        // 只有用户主动点「切换目录」时才弹
+        val effectiveDefaultPath = defaultPath
+            ?: firstPersistedTreeUri()?.toString()
+            ?: "/storage/emulated/0/Download/legado/novel"
         if (effectiveDefaultPath.isNullOrBlank()) {
             _effects.tryEmit(
                 ImportBookEffect.RequestFolderPicker(target = ImportFolderPickTarget.DEFAULT_BOOK)

@@ -98,13 +98,14 @@ android {
         }
         create("noR8") {
             initWith(getByName("release"))
+            applicationIdSuffix = ".debug"
             isMinifyEnabled = false
             isShrinkResources = false
+            signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
             versionNameSuffix = "-noR8"
         }
         getByName("debug") {
-            applicationIdSuffix = ".debug"
             if (project.hasProperty("RELEASE_STORE_FILE")) {
                 signingConfig = signingConfigs.getByName("myConfig")
             }
