@@ -103,6 +103,12 @@ class App : Application(), SingletonImageLoader.Factory {
         // 首行初始化设置快照层：同步预加载 DataStore（触发 SP 迁移），
         // 之后所有 getPref* 门面读取均为纯内存查找，须先于一切主题/配置读取
         AppConfigStore.init(this)
+
+        if (BuildConfig.DEBUG) {
+            // 调试期开 WebView DevTools：epub 无损渲染改走 WebView，验证用 CDP 查 DOM / 计算样式，
+            // 比截图准。不能放 companion init —— 那时 Application 还不存在，WebViewFactory 会 NPE。
+            android.webkit.WebView.setWebContentsDebuggingEnabled(true)
+        }
         // 一次性迁移：把旧版语言偏好写入 AppCompat per-app locales，之后交由
         // autoStoreLocales 持久化。不能每次启动都执行——API 33+ 上会覆盖用户在
         // 系统设置里选择的应用语言，API <33 上此时 AppCompat 存储尚未加载、

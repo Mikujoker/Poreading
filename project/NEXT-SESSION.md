@@ -59,6 +59,8 @@
 - 接入点：**只在阅读页内容区**对 `book.isEpub` 分支，别动纯文本 / PDF（漫画阅读器）/ 正常路径；进度用滚动比例写进 `chapterPos`
 - 验收：同一本 epub ①原版 CSS 生效 ②主题切换生效（背景/字色/字体/字号/行距）③目录跳转与进度续读正常 ④退出重进不丢进度
 
+**①b OPDS 源支持（用户新增需求）**：添加 OPDS 目录源（Atom/XML 解析 + 可选 Basic Auth）→ 浏览/搜索/下载 epub/txt → 导入本地书
+
 **② 完成后：核对需求清单 → 版本切正式 release**
 - 构建：R8 + ABI 拆分（`app/build.gradle.kts` 的 release 已 `isMinifyEnabled = true` + 签名 `myConfig`；另有 `noR8` 变体排障）
 - 动机：用户要的是**运行流畅度提升**（顺带确认没有 R8 引发的行为退化）

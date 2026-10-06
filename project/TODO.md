@@ -35,7 +35,10 @@
 
 **要做（用户已确认，其余已从需求删除）**
 1. ✅ **本地书文件治理 已完成**（2026-10-06）：C1 用新增的 `POST /renameLocalBooks` 把 **141 本**乱码书名搬到 `Download/legado/novel/<书名><ext>` 并同步 DB（路径含乱码 134 → **0**，清理历史重复 136 条，进度保留）；C2 **本来就有**（`help/book/LocalBookRename.kt` + 编辑页会问"要不要连磁盘源文件一起改名"）；C3-C6 用户说"视情况"（Browser 目录还剩 79 个孤立文件）
-2. ⏳ **EPUB 无损阅读**（用户已定方案：**整本改 WebView**，spine 逐章 + 注入主题 CSS + 保留目录/进度；`androidx.webkit` 已依赖 → `WebViewAssetLoader` 或 `shouldInterceptRequest` 从 zip 取资源都可以）
+2. 🔄 **EPUB 无损阅读（实现完成，待端上验证）**：新增 `model/localBook/EpubWebDocument.kt`（原样取压缩包 XHTML + 资源流 + 主题 CSS 注入）与 `feature/reader/EpubWebContent.kt`（WebView + `shouldInterceptRequest` 拦截 `https://epub.local/*`）；`ReadBookRouteScreen` 里对 `book.isEpub` 覆盖一层 WebView（画布仍在下层，分页/首帧/章节状态机照旧）。
+   - 进度：章节内位置 = 滚动比例 ×10000 写进 `durChapterPos`（`publish=false`，持久化读字段所以存得住）
+   - 验证手段：**CDP**（debug 包已开 `WebView.setWebContentsDebuggingEnabled`）查 DOM/计算样式/图片解码，不用截图；脚本 `legado-work/verify_epub.py`
+   - 旧描述（作废）：（用户已定方案：**整本改 WebView**，spine 逐章 + 注入主题 CSS + 保留目录/进度；`androidx.webkit` 已依赖 → `WebViewAssetLoader` 或 `shouldInterceptRequest` 从 zip 取资源都可以）
 3. ⏳ 之后：**版本切正式 release**（R8 + ABI 拆分；E1 已出过 33MB `rel.apk`）+ 确认流畅度；注意 release 是 `io.legato.kazusa`（另一 app → 数据要迁移）、无 `run-as`
 4. ✅ PDF 小活已完成：`番外篇/能天使` 经 `refreshToc` 自愈（章节表 3 行 → 24 行）
 
@@ -243,3 +246,14 @@
 - ~~浮动批量操作条~~（与 app 原有底部条重叠，用户也认为批量操作暂时用不上）
 - ~~预计算健康度 / 落盘缓存~~（见 DECISIONS D8、D9）
 - ~~五级健康度（在用/待观察/冷冻/待修/坏源）~~（见 DECISIONS D9）
+5. ⏳ **OPDS 源支持**（用户 2026-10-06 新增）：能添加 OPDS 目录源（Atom/XML 解析 + 可选 Basic Auth），浏览目录、搜索、下载 epub/txt → 导入本地书；范围/入口待用户确认后细化
+
+### OPDS 实现要点（用户已确认范围：浏览+搜索+下载导入）
+- **现状**：仓库里没有任何 OPDS/Atom 支持（`grep opds|atom+xml` 为空）；`BookSourceType` 现有 0 文本 / 1 音频 / 2 图片 / 3 file（只提供下载服务的网站）
+- **接入方式（计划）**：做成"服务地址 + 可选 Basic Auth"的独立入口（不进书源列表，避免污染），实现：
+  1. `OpdsCatalog`（Atom/XML 解析：`<entry><title><link rel="http://opds-spec.org/acquisition" href type>`；分页 `rel="next"`）
+  2. `OpdsSource` 实体（id/名称/URL/账号/密码）+ DAO + 管理页
+  3. 浏览页：进入 catalog → 列表（子目录/条目 + 封面 `image` link）；搜索：`{searchTerms}` 模板
+  4. 下载：`acquisition` link → 下到 `Download/legado/novel/` → **复用 `ui/book/import/local/ImportBook*.kt` 的既有导入流程**进书架
+- **复用点**：本地导入 `ui/book/import/local/{ImportBook,ImportBookScreen,ImportBookViewModel}.kt`；书源管理页 `ui/book/source/manage/BookSourceScreen.kt` 作为 UI 参考
+- **验证（不靠截图）**：加 `POST /opdsBrowse {url,query}` 这类接口回 JSON（条目/链接数），端上用 `adb` 触发后读接口

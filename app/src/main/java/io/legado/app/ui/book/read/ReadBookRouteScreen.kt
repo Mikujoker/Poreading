@@ -28,6 +28,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -55,6 +56,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
@@ -70,8 +73,10 @@ import io.legado.app.R
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.BookType
 import io.legado.app.constant.ReadMenuBlurMode
+import io.legado.app.data.entities.BookChapter
 import io.legado.app.core.ui.morph.BookMorphHost
 import io.legado.app.core.ui.morph.LocalBookMorph
+import io.legado.app.feature.reader.EpubWebContent
 import io.legado.app.feature.reader.ReaderBackgroundSurface
 import io.legado.app.feature.reader.ReaderCanvasSurface
 import io.legado.app.feature.reader.core.gesture.ReaderTapActionGrid
@@ -80,7 +85,9 @@ import io.legado.app.feature.reader.core.transition.ReaderPageTurnSpeed
 import io.legado.app.feature.reader.core.transition.ReaderTransitionMode
 import io.legado.app.feature.reader.platform.ReaderPerfTrace
 import io.legado.app.help.IntentHelp
+import io.legado.app.help.book.isEpub
 import io.legado.app.model.ReadBook
+import io.legado.app.model.localBook.EpubWebDocument
 import io.legado.app.model.SourceCallBack
 import io.legado.app.model.translation.TranslationChapterStatus
 import io.legado.app.ui.book.info.BookInfoActivity
@@ -824,6 +831,81 @@ fun ReadBookRouteScreen(
                     onVisibleBodyTextPositionProvider = controller::setComposeVisibleBodyTextPositionProvider,
                 )
                 ReaderPerfTrace.marker("compose.canvas.end")
+            }
+            // 本地 EPUB：正文改用 WebView 直接渲染 epub 自带的 XHTML + CSS（无损，见 EpubWebDocument）。
+            // 画布仍留在下面（分页/首帧/章节状态机照旧运转），WebView 覆盖在上层，只接管"显示"。
+            state.book?.takeIf { it.isEpub }?.let { epubBook ->
+                val epubStyle = state.styleConfig
+                val epubSheet = state.sheetConfig
+                val epubFont = epubStyle.textFont
+                val epubFontReady = remember(epubFont) {
+                    EpubWebDocument.fontFile(context, epubFont) != null
+                }
+                val epubFontSizePx = with(localDensity) { epubStyle.textSize.sp.toPx() }
+                val epubLineGapPx = with(localDensity) { epubSheet.lineSpacing.sp.toPx() }
+                val epubParaGapPx = with(localDensity) { epubSheet.paragraphSpacing.sp.toPx() }
+                val epubBgHex = if (isDarkTheme) epubStyle.bgStrNight else epubStyle.bgStr
+                val epubTextHex = if (isDarkTheme) epubStyle.textColorNight else epubStyle.textColor
+                val epubAccentHex = String.format(
+                    "#%06X",
+                    0xFFFFFF and LegadoTheme.colorScheme.primary.toArgb(),
+                )
+                val epubCss = remember(
+                    epubBgHex, epubTextHex, epubAccentHex, epubFont, epubFontReady,
+                    epubFontSizePx, epubLineGapPx, epubParaGapPx,
+                ) {
+                    EpubWebDocument.themeCss(
+                        backgroundHex = epubBgHex,
+                        foregroundHex = epubTextHex,
+                        accentHex = epubAccentHex,
+                        fontFamily = EpubWebDocument.fontFamilyCss(epubFont.takeIf { epubFontReady }),
+                        fontFace = if (epubFontReady) EpubWebDocument.fontFaceCss(epubFont) else "",
+                        fontSizePx = epubFontSizePx,
+                        // 行高 = 字号 × 1.6 + 用户行距，单位统一成 px 交给 CSS
+                        lineHeightPx = epubFontSizePx * 1.6f + epubLineGapPx,
+                        paragraphSpacingPx = epubParaGapPx,
+                        horizontalPaddingPx = 0f,
+                    )
+                }
+                val epubChapter = remember(
+                    epubBook.bookUrl, state.durChapterIndex, state.chapterUrl, state.chapterName,
+                ) {
+                    BookChapter(
+                        bookUrl = epubBook.bookUrl,
+                        title = state.chapterName,
+                        url = state.chapterUrl,
+                        index = state.durChapterIndex,
+                    )
+                }
+                EpubWebContent(
+                    book = epubBook,
+                    chapter = epubChapter,
+                    chapterKey = "${epubBook.bookUrl}|${state.durChapterIndex}|$epubCss",
+                    css = epubCss,
+                    backgroundColor = readerSurfaceColor,
+                    // 无损模式下章节内位置用"滚动比例 ×10000"存进 durChapterPos（不发布快照，
+                    // 免得滚动的每一帧都重建 UiState；持久化读的是字段，所以照样存得住）。
+                    restoreFraction = (state.durChapterPos / 10000f).coerceIn(0f, 1f),
+                    onScrollFraction = { fraction ->
+                        ReadBook.updateReadingPosition(
+                            (fraction * 10000f).toInt(),
+                            publish = false,
+                        )
+                    },
+                    onReachBottom = {
+                        if (state.durChapterIndex < state.chapterSize - 1) {
+                            viewModel.onIntent(ReadBookIntent.OpenChapter(state.durChapterIndex + 1))
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            start = with(localDensity) { readerContentPadding.left.toDp() },
+                            top = with(localDensity) { readerContentPadding.top.toDp() },
+                            end = with(localDensity) { readerContentPadding.right.toDp() },
+                            bottom = with(localDensity) { readerContentPadding.bottom.toDp() },
+                        ),
+                )
             }
             AnimatedVisibility(
                 // 旧 View 把消息画成页（chrome 保留）；只有画布无从成页（还没有窗口/视口）

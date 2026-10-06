@@ -32,6 +32,7 @@ import io.legado.app.data.dao.HomepageCustomSetDao
 import io.legado.app.data.dao.HomepageModuleDao
 import io.legado.app.data.dao.HttpTTSDao
 import io.legado.app.data.dao.KeyboardAssistsDao
+import io.legado.app.data.dao.OpdsSourceDao
 import io.legado.app.data.dao.ReadAloudVoiceDao
 import io.legado.app.data.dao.ReadRecordDao
 import io.legado.app.data.dao.ReplaceRuleDao
@@ -81,6 +82,7 @@ import io.legado.app.data.entities.HomepageCustomSet
 import io.legado.app.data.entities.HomepageModule
 import io.legado.app.data.entities.HttpTTS
 import io.legado.app.data.entities.KeyboardAssist
+import io.legado.app.data.entities.OpdsSource
 import io.legado.app.data.entities.ReadAloudVoiceEntity
 import io.legado.app.data.entities.ReplaceRule
 import io.legado.app.data.entities.RssArticle
@@ -112,7 +114,7 @@ val appDb by lazy {
 }
 
 @Database(
-    version = 110,
+    version = 111,
     exportSchema = true,
     entities = [Book::class, BookGroup::class, BookSource::class, BookChapter::class,
         ReplaceRule::class, SearchBook::class, SearchKeyword::class, Cookie::class,
@@ -129,6 +131,7 @@ val appDb by lazy {
         BookOutlineNode::class, ReadAloudVoiceEntity::class, BookVoiceBindingEntity::class,
         ChapterSpeechAnalysisEntity::class, ChapterSpeechSegmentEntity::class,
         CloudTtsEngineEntity::class, ExactChapterPageCountEntity::class,
+        OpdsSource::class,
         BookMarking::class],
     views = [BookSourcePart::class],
     autoMigrations = [
@@ -196,7 +199,9 @@ val appDb by lazy {
         // readRecordSession 新增 bookUrl 归属列：同名作者作品共存时按书籍副本分别计时
         AutoMigration(from = 105, to = 106),
         // books 新增 isPrivate 列：单本私密标记，与所属私密分组共同决定书籍是否私密
-        AutoMigration(from = 106, to = 107)
+        AutoMigration(from = 106, to = 107),
+        // opdsSources 新增表：OPDS 目录源（Calibre-Web / Kavita 等），与书源分开存
+        AutoMigration(from = 110, to = 111)
     ]
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -226,6 +231,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract val cacheDao: CacheDao
     abstract val ruleSubDao: RuleSubDao
     abstract val dictRuleDao: DictRuleDao
+    abstract val opdsSourceDao: OpdsSourceDao
     abstract val exactChapterPageCountDao: ExactChapterPageCountDao
     abstract val keyboardAssistsDao: KeyboardAssistsDao
     abstract val serverDao: ServerDao

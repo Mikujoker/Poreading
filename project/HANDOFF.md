@@ -363,3 +363,10 @@ PDF 章节表**行数 ≠ 页数**就按页重建（旧版留过「一段十页�
 - 番外篇 / 能天使 打开一次让章节表自愈（7 行 / 3 行的旧 `分段_N`）。
 - PDF 页缓存目录在会话结束仍会被清（沿用原设计）→ 每次重开要重新铺几页。
 - PDF 页缓存的磁盘占用不设上限（163 页约 65 MB，且 `close()` 会清）。
+
+## 启动崩溃坑：`App` 的 companion 静态初始化里不能碰 WebView API
+`WebView.setWebContentsDebuggingEnabled(true)` 放进 `App` 的 `companion object { init { ... } }` 会
+**启动即崩**（`ExceptionInInitializerError` → `NullPointerException: Application.getPackageManager() on a
+null object reference`，栈顶 `WebViewFactory.isWebViewSupported`）：静态初始化时 `Application` 实例还不存在。
+→ 这类"需要应用上下文/WebView 框架"的初始化一律放 `App.onCreate()`（`if (BuildConfig.DEBUG)` 里）。
+排查手法：`adb logcat -b crash -d | tail -50`（普通 buffer 里可能只剩 OPPO 的 `reason=4 (APP CRASH)`）。
