@@ -81,13 +81,16 @@ object OpdsApiController {
         val body = body(postData)
         val source = sourceOf(body) ?: return ReturnData().setErrorMsg("url 不能为空")
         val href = body["href"]?.toString()?.trim().orEmpty()
-        if (href.isBlank()) return ReturnData().setErrorMsg("href 不能为空")
+        val bookFeedHref = body["bookFeedHref"]?.toString()?.trim().orEmpty()
+        if (href.isBlank() && bookFeedHref.isBlank()) {
+            return ReturnData().setErrorMsg("href / bookFeedHref 至少要有一个")
+        }
         val entry = OpdsFeed.Entry(
             title = body["title"]?.toString()?.takeIf { it.isNotBlank() } ?: "opds_book",
             acquisition = body["href"]?.toString()?.takeIf { it.isNotBlank() }?.let {
                 OpdsFeed.Link(href = it, type = body["type"]?.toString()?.takeIf { t -> t.isNotBlank() })
             },
-            bookFeedHref = body["bookFeedHref"]?.toString()?.takeIf { it.isNotBlank() },
+            bookFeedHref = bookFeedHref.takeIf { it.isNotBlank() },
         )
         val file = runCatching { repository.download(source, entry) }.getOrElse {
             return ReturnData().setErrorMsg("下载失败：${it.localizedMessage}")
