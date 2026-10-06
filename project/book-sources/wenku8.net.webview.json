@@ -1,0 +1,32 @@
+{
+  "bookSourceName": "轻小说文库(wenku8)·webView版【草案】",
+  "bookSourceGroup": "自建",
+  "bookSourceUrl": "https://www.wenku8.net",
+  "bookSourceComment": "【草案·webView 版】本站在手机线路上会返回 Cloudflare『Just a moment...』托管挑战，纯 HTTP 解不了、cookie 也没用（实测：浏览器导出的 cf_clearance+同 UA 仍被拦），所以四处取页都挂了 webView。别挂梯子（机房 IP 直接被硬拦）。调试页没有 webView 开关，请用 app 的搜索来验。",
+  "enabled": true,
+  "enabledCookieJar": true,
+  "header": "{\"User-Agent\":\"Mozilla/5.0 (Linux; Android 16; 2201122C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36\",\"Referer\":\"https://www.wenku8.net/\"}",
+  "loginUrl": "https://www.wenku8.net/login.php",
+  "searchUrl": "/so.php,{\"method\":\"POST\",\"body\":\"searchtype=articlename&searchkey={{key}}&charset=gbk\",\"charset\":\"gbk\",\"webView\":true,\"webViewDelayTime\":3000}",
+  "ruleSearch": {
+    "bookList": "#content table tr, div.block",
+    "name": "a@text",
+    "bookUrl": "a@href@js:result + ',{\"webView\":true,\"webViewDelayTime\":3000}'"
+  },
+  "ruleBookInfo": {
+    "name": "title@text##\\s*-.*",
+    "author": "td:contains(小说作者)@text##小说作者：",
+    "kind": "td:contains(文库分类)@text##文库分类：",
+    "intro": "meta[name='description']@content",
+    "coverUrl": "img[src*='img.wenku8.com']@src",
+    "tocUrl": "a:contains(小说目录)@href@js:result + ',{\"webView\":true,\"webViewDelayTime\":3000}'"
+  },
+  "ruleToc": {
+    "chapterList": "td.ccss a",
+    "chapterName": "text",
+    "chapterUrl": "href@js:result + ',{\"webView\":true,\"webViewDelayTime\":3000}'"
+  },
+  "ruleContent": {
+    "content": "#content@html"
+  }
+}
