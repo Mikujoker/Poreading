@@ -29,6 +29,35 @@ headless Chrome **一律 403 + Cloudflare「Sorry, you have been blocked」** �
 （**托管挑战**，真浏览器可过）；`69shu.pro` 是自定义 JS 壳；`bixia.org` 的 `/book/` 已是域名停放页。
 → 结论：**这类站点必须靠真实浏览器/端上 WebView 拿会话**，纯 HTTP 学多少姿势都没用。
 
+**2026-10-07 补充（关键反转：是出口 IP，不是浏览器）**
+
+同一天稍后复测，**真实 Chrome + 绕过系统代理（直连中国家庭宽带）→ 直接过 CF**，
+拿到真站首页并被跳到登录页：
+
+| 出口 | `cloudflare.com/cdn-cgi/trace` | 真实 Chrome 访问 wenku8 |
+|---|---|---|
+| 本地梯子 `127.0.0.1:7890` | `ip=38.207.136.135 loc=JP colo=NRT`（日本机房） | 403 拦截页 |
+| **直连（不走代理）** | `ip=1.194.68.229 loc=CN colo=LAX`（家庭宽带） | **200 真站 + 跳登录页** |
+
+所以先前"WAF 硬拦、纯 HTTP 无解"的结论要修正为：
+**先看出口 IP，再谈指纹。** 机房/代理 IP 在 CF 的 bot score 上先被判死，
+此时 TLS 指模（`curl_cffi`）、headless、甚至真浏览器都过不去；
+换到住宅/移动 IP 之后，真浏览器一把就过。
+
+落地到工程：
+- **L1 之前先加一步 L-1：出口 IP 自检**（`cdn-cgi/trace` 看 `loc`/`colo`，
+  数据中心 IP 直接换出口，别浪费后面所有姿势）；
+- 端上同理：**手机上如果挂着梯子，book source 会被 CF 拦**，
+  这也很可能就是"老是得反复登录"的真凶之一（IP 一变，旧 `cf_clearance` 与风控信任一起失效）。
+
+工具：`project/tools/cdp_fetch.py`（L2 会话层，真 Chrome + CDP；独立 profile，不动用户的窗口）：
+```bash
+CDP_PORT=9223 CDP_EXTRA_ARGS="--no-proxy-server" \
+  python3 cdp_fetch.py fetch "https://www.wenku8.net/index.php" --wait 14 --out wk.html
+python3 cdp_fetch.py cookies "https://www.wenku8.net/index.php"   # 导出 cookie 供 HTTP 复用
+python3 cdp_fetch.py ua                                           # 写进书源 header 用
+```
+
 ---
 
 ## 1. 边界与铁律
