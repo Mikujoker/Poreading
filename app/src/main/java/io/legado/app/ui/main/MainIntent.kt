@@ -134,6 +134,11 @@ object MainIntent {
             putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_RSS_SOURCE_MANAGE)
         }
 
+    fun createOpdsIntent(context: Context): Intent =
+        createLauncherIntent(context).apply {
+            putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_OPDS)
+        }
+
     fun createRssSourceEditIntent(context: Context, sourceUrl: String? = null): Intent =
         createLauncherIntent(context).apply {
             putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_RSS_SOURCE_EDIT)

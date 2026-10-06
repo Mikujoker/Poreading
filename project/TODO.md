@@ -257,3 +257,14 @@
   4. 下载：`acquisition` link → 下到 `Download/legado/novel/` → **复用 `ui/book/import/local/ImportBook*.kt` 的既有导入流程**进书架
 - **复用点**：本地导入 `ui/book/import/local/{ImportBook,ImportBookScreen,ImportBookViewModel}.kt`；书源管理页 `ui/book/source/manage/BookSourceScreen.kt` 作为 UI 参考
 - **验证（不靠截图）**：加 `POST /opdsBrowse {url,query}` 这类接口回 JSON（条目/链接数），端上用 `adb` 触发后读接口
+
+### OPDS 进度（2026-10-06 晚）
+- ✅ **后端端到端验证通过 5/5**（设备上）：保存源 → 列源 → Gutenberg 服务端搜索(27 条) → 进入书级 feed
+  (`/ebooks/11.opds` 解析出 epub 直链) → 下载(136KB) → 导入书架 → 回读确认；脚本 `legado-work/verify_opds.py`
+- ✅ 解析层单测 **10/10**（含真实 Gutenberg 两种形态：kind=acquisition 书级 feed / rel=subsection 无 kind）
+- ✅ 实体 + DAO + `AutoMigration(110→111)` + Koin（DAO/Repository/ViewModel）
+- ✅ HTTP 接口 5 条：`/opdsSources` `/opdsSaveSource` `/opdsDeleteSource` `/opdsBrowse` `/opdsDownload`
+- ✅ **UI 已写并接入导航**：`ui/opds/OpdsScreen.kt`（源列表/添加/删除 + 浏览/搜索/下载/下一页/面包屑）、
+  `OpdsViewModel.kt`；路由 `MainRouteOpds` + `ROUTE_OPDS="opds"` + `MainNavGraph` entry + `MainIntent.createOpdsIntent`
+  → 可用 `am start ... --es startRoute opds` 打开（无截图验证入口）
+- ⏳ 待补：把入口放进「我的」页（挨着"书源管理"）；UI 的**视觉验证**需解锁手机

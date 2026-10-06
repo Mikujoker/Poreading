@@ -543,6 +543,7 @@ val appModule = module {
     singleOf(::RelocateMarkingTargetUseCase)
     singleOf(::ReplaceRuleRepository)
     single { io.legado.app.data.repository.OpdsRepository(get()) }
+    viewModel { io.legado.app.ui.opds.OpdsViewModel(get()) }
     single<DictionaryGateway> { DictionaryRepositoryImpl() }
     singleOf(::TranslateChapterUseCase)
     singleOf(::AiChatGenerationUseCase)

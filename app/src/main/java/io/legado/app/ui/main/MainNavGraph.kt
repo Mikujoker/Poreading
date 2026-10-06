@@ -314,6 +314,10 @@ fun MainActivity.mainEntryProvider(
             onBack = onNavigateBack,
         )
     }
+    entry<MainRouteOpds> {
+        io.legado.app.ui.opds.OpdsScreen(onBack = onNavigateBack)
+    }
+
     entry<MainRouteBookSourceManage> { route ->
         BookSourceRouteScreen(
             initialImportUrl = route.importUrl,

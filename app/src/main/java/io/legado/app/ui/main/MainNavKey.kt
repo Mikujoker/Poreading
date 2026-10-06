@@ -43,6 +43,8 @@ data class MainRouteBookSourceEdit(val sourceUrl: String? = null) : MainRoute
 
 @Serializable
 data object MainRouteRssSourceManage : MainRoute
+@Serializable
+data object MainRouteOpds : MainRoute
 
 @Serializable
 data class MainRouteRssSourceEdit(val sourceUrl: String? = null) : MainRoute
@@ -264,6 +266,7 @@ object MainRouteConst {
     const val ROUTE_BOOK_SOURCE_DEBUG = "source/book/debug"
     const val ROUTE_BOOK_SOURCE_REPAIR = "source/book/repair"
     const val ROUTE_RSS_SOURCE_DEBUG = "source/rss/debug"
+    const val ROUTE_OPDS = "opds"
     const val ROUTE_SETTINGS = "settings"
     const val ROUTE_SETTINGS_OTHER = "settings/other"
     const val ROUTE_SETTINGS_READ = "settings/read"

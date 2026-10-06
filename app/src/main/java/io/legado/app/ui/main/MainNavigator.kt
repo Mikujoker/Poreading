@@ -451,6 +451,8 @@ object MainNavigator {
             )
 
             MainRouteConst.ROUTE_RSS_SOURCE_MANAGE -> MainRouteRssSourceManage
+
+            MainRouteConst.ROUTE_OPDS -> io.legado.app.ui.main.MainRouteOpds
             MainRouteConst.ROUTE_RSS_SOURCE_EDIT -> MainRouteRssSourceEdit(
                 intent?.getStringExtra(MainIntent.EXTRA_SOURCE_URL)
             )
