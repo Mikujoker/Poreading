@@ -220,3 +220,12 @@
 2. `adb` 是 Windows 侧 exe（WSL wrapper），`/tmp` 路径它看不见 → push/pull 一律用 `C:\…` 或
    `cd /mnt/c/...` 后的相对路径
 3. 设备 shell 里带中文/GBK 的 `ls|grep`/`find -name` 不可靠 → 让脚本把结果写文件再 pull 回来分析
+
+### 后续（同日）：外部书全部归位
+
+- 用户确认后把 novel 之外的 **138 本**（Browser / QQBrowser / [sxsy.org]炎心 / BaiduNetdisk / Download 根）
+  一并搬进 `Download/legado/novel` 并改名为书名（`/renameLocalBooks {includeOutside: true}`），失败 0
+- 结果：全部 **281 本**本地书都在 novel、路径 **MISSING 0**、无孤儿文件、无内容重复组；复查 dryRun `planned=0`
+- **注意**：Web API 走 `127.0.0.1:1122` 时本机 `http_proxy=127.0.0.1:7890` 会抢答 **502**，
+  脚本里要 `urllib.request.ProxyHandler({})` 绕开（上一轮 `tools/book_debug.py` 早踩过同一个坑）；
+  另外 Web 服务随 MainActivity 起停，重装/进程被杀后要先 `am start` 拉起再用 API
