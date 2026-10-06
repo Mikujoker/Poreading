@@ -23,6 +23,7 @@ import io.legado.app.api.controller.SourceDebugController
 import io.legado.app.api.controller.AiProfileController
 import io.legado.app.api.controller.SourceRepairApiController
 import io.legado.app.api.controller.LocalBookApiController
+import io.legado.app.api.controller.OpdsApiController
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.service.WebService
 import io.legado.app.utils.LogUtils
@@ -152,6 +153,11 @@ class KtorServer(private val port: Int) {
                 get("/getAiProfile") { handleGet { AiProfileController.getDefaultChat() } }
                 get("/verifyLogin") { handleGet { SourceDebugController.verifyLogin(it) } }
                 get("/fetchPage") { handleGet { SourceDebugController.fetchPage(it) } }
+                get("/opdsSources") { handleGet { OpdsApiController.listSources() } }
+                post("/opdsSaveSource") { handlePost { OpdsApiController.saveSource(it) } }
+                post("/opdsDeleteSource") { handlePost { OpdsApiController.deleteSource(it) } }
+                post("/opdsBrowse") { handlePost { OpdsApiController.browse(it) } }
+                post("/opdsDownload") { handlePost { OpdsApiController.download(it) } }
 
                 get("{...}") {
                     WebService.serve()

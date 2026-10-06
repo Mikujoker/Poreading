@@ -64,7 +64,7 @@ class OpdsRepository(private val opdsSourceDao: OpdsSourceDao) {
     /** 把条目下载到本地书目录，返回落地文件（调用方负责导入书架）。 */
     suspend fun download(source: OpdsSource, entry: OpdsFeed.Entry): File? =
         withContext(Dispatchers.IO) {
-            val link = entry.acquisition ?: return@withContext null
+            val link = resolveLink(source, entry) ?: return@withContext null
             val target = File(FileUtils.getSdCardPath(), LOCAL_BOOK_DIR).apply { mkdirs() }
             val file = File(target, buildFileName(entry, link))
             okHttpClient.newCall(request(source, link.href).build()).execute().use { response ->
@@ -76,6 +76,15 @@ class OpdsRepository(private val opdsSourceDao: OpdsSourceDao) {
             }
             file.takeIf { it.length() > 0 }
         }
+
+    /** 有直链就用直链；只给了书级 feed 的（Gutenberg 两步结构）就先进去挑一个 epub/pdf。 */
+    private fun resolveLink(source: OpdsSource, entry: OpdsFeed.Entry): OpdsFeed.Link? {
+        entry.acquisition?.let { return it }
+        val feedHref = entry.bookFeedHref ?: return null
+        val page = runCatching { OpdsFeed.parse(fetchText(source, feedHref), feedHref) }.getOrNull()
+            ?: return null
+        return OpdsFeed.pickAcquisition(page)
+    }
 
     private fun fetchText(source: OpdsSource, url: String): String =
         okHttpClient.newCall(request(source, url).build()).execute().use { response ->

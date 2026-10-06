@@ -110,4 +110,50 @@ class OpdsFeedTest {
         assertEquals(1, page.entries.size)
         assertEquals("http://192.168.1.9:8083/a.epub", page.entries.first().acquisition?.href)
     }
+
+    @Test
+    fun `Gutenberg 形态_搜索结果给的是书级 feed 而不是直链`() {
+        val xml = """
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <title>Search Results</title>
+              <entry>
+                <title>Alice's Adventures in Wonderland</title>
+                <link rel="alternate" type="application/atom+xml;profile=opds-catalog;kind=acquisition"
+                      href="/ebooks/11.opds"/>
+              </entry>
+              <entry>
+                <title>Authors</title>
+                <link rel="subsection" type="application/atom+xml;profile=opds-catalog;kind=navigation"
+                      href="/ebooks/authors/1.opds"/>
+              </entry>
+            </feed>
+        """.trimIndent()
+        val page = OpdsFeed.parse(xml, "https://www.gutenberg.org/ebooks/search.opds/?query=alice")
+        assertEquals(1, page.bookEntries.size)
+        assertEquals(1, page.navEntries.size)
+        val book = page.bookEntries.first()
+        assertTrue("书级 feed 也算可下载", book.isDownloadable)
+        assertNull("搜索页没有直链", book.acquisition)
+        assertEquals("https://www.gutenberg.org/ebooks/11.opds", book.bookFeedHref)
+    }
+
+    @Test
+    fun `Gutenberg 书级 feed_挑直链时 epub 优先于 kindle`() {
+        val xml = """
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <title>Alice's Adventures in Wonderland</title>
+              <entry>
+                <title>Alice's Adventures in Wonderland</title>
+                <link type="application/x-mobipocket-ebook" rel="http://opds-spec.org/acquisition"
+                      href="https://www.gutenberg.org/ebooks/11.kindle.noimages"/>
+                <link type="application/epub+zip" rel="http://opds-spec.org/acquisition"
+                      href="https://www.gutenberg.org/ebooks/11.epub.noimages"/>
+              </entry>
+            </feed>
+        """.trimIndent()
+        val page = OpdsFeed.parse(xml, "https://www.gutenberg.org/ebooks/11.opds")
+        val picked = OpdsFeed.pickAcquisition(page)
+        assertEquals("application/epub+zip", picked?.type)
+        assertEquals("https://www.gutenberg.org/ebooks/11.epub.noimages", picked?.href)
+    }
 }
