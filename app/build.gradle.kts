@@ -202,6 +202,8 @@ dependencies {
     implementation(libs.appcompat.appcompat)
     implementation(libs.activity.ktx)
     implementation(libs.fragment.ktx)
+    // 在 Compose 里承载 Readium 的 EpubNavigatorFragment（epub 原版排版阅读页要用）
+    implementation(libs.fragment.compose)
     implementation(libs.preference.ktx)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.swiperefreshlayout)
