@@ -140,6 +140,12 @@ object MainIntent {
             putExtra(EXTRA_SOURCE_URL, sourceUrl)
         }
 
+    fun createBookSourceRepairIntent(context: Context, sourceUrl: String?): Intent =
+        createLauncherIntent(context).apply {
+            putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_BOOK_SOURCE_REPAIR)
+            putExtra(EXTRA_SOURCE_URL, sourceUrl)
+        }
+
     fun createBookSourceDebugIntent(context: Context, sourceUrl: String?): Intent =
         createLauncherIntent(context).apply {
             putExtra(EXTRA_START_ROUTE, MainRouteConst.ROUTE_BOOK_SOURCE_DEBUG)

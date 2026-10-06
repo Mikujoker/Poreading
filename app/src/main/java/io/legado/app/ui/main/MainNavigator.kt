@@ -86,6 +86,7 @@ object MainNavigator {
             MainRouteRssSourceManage,
             is MainRouteRssSourceEdit,
             is MainRouteBookSourceDebug,
+            is MainRouteBookSourceRepair,
             is MainRouteRssSourceDebug -> backStack.add(route)
 
             MainRouteReadAloudPlayer -> backStack.add(route)
@@ -455,6 +456,10 @@ object MainNavigator {
             )
 
             MainRouteConst.ROUTE_BOOK_SOURCE_DEBUG -> MainRouteBookSourceDebug(
+                intent?.getStringExtra(MainIntent.EXTRA_SOURCE_URL)
+            )
+
+            MainRouteConst.ROUTE_BOOK_SOURCE_REPAIR -> MainRouteBookSourceRepair(
                 intent?.getStringExtra(MainIntent.EXTRA_SOURCE_URL)
             )
 

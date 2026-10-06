@@ -111,6 +111,33 @@ object ImageProvider {
         return bitmap
     }
 
+    /**
+     * 解码失败的占位策略：TTL 内不重试（防每次绘制都重试），TTL 过后允许重试，
+     * 但同一文件最多重试 [ERROR_MAX_RETRY] 次（防坏图反复下载）。
+     * 这样一次瞬时失败（例如缓存文件被写坏）不会让图片永久变灰。
+     */
+    private class DecodeFailure(var at: Long, var attempts: Int)
+
+    private val decodeFailures = java.util.concurrent.ConcurrentHashMap<String, DecodeFailure>()
+
+    private fun canRetryAfterDecodeError(key: String): Boolean {
+        val failure = decodeFailures[key] ?: return true
+        if (System.currentTimeMillis() - failure.at < ERROR_RETRY_TTL_MS) return false
+        return failure.attempts < ERROR_MAX_RETRY
+    }
+
+    private fun markDecodeError(key: String) {
+        val failure = decodeFailures[key]
+        decodeFailures[key] = DecodeFailure(System.currentTimeMillis(), (failure?.attempts ?: 0) + 1)
+    }
+
+    private fun clearDecodeError(key: String) {
+        decodeFailures.remove(key)
+    }
+
+    private const val ERROR_RETRY_TTL_MS = 4_000L
+    private const val ERROR_MAX_RETRY = 2
+
     private fun ensureLruCacheSize(bitmap: Bitmap) {
         val lruMaxSize = bitmapLruCache.maxSize()
         val lruSize = bitmapLruCache.size()
@@ -201,15 +228,23 @@ object ImageProvider {
         //epub文件提供图片链接是相对链接，同时阅读多个epub文件，缓存命中错误
         //bitmapLruCache的key同一改成缓存文件的路径
         val cacheBitmap = getNotRecycled(vFile.absolutePath)
-        if (cacheBitmap != null) return cacheBitmap
+        if (cacheBitmap != null) {
+            if (!isErrorBitmap(cacheBitmap)) return cacheBitmap
+            // 缓存的是错误占位图：TTL 内先沿用，TTL 过后允许重试，并把疑似半截的缓存文件删掉让下次重新下载
+            if (!canRetryAfterDecodeError(vFile.absolutePath)) return cacheBitmap
+            remove(vFile.absolutePath)
+            runCatching { if (vFile.exists()) vFile.delete() }
+        }
         return kotlin.runCatching {
             val bitmap = BitmapUtils.decodeBitmap(vFile.absolutePath, width, height)
                 ?: SvgUtils.createBitmap(vFile.absolutePath, width, height)
                 ?: throw NoStackTraceException(appCtx.getString(R.string.error_decode_bitmap))
             put(vFile.absolutePath, bitmap)
+            clearDecodeError(vFile.absolutePath)
             bitmap
         }.onFailure {
-            //错误图片占位,防止重复获取
+            // 短期占位（防重复获取）——不再永久缓存失败：一次瞬时解码失败不该让图片永久变灰
+            markDecodeError(vFile.absolutePath)
             put(vFile.absolutePath, errorBitmap)
         }.getOrDefault(errorBitmap)
     }

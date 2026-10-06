@@ -114,6 +114,8 @@ import io.legado.app.ui.book.searchContent.SearchContentRouteScreen
 import io.legado.app.ui.book.searchContent.SearchContentViewModel
 import io.legado.app.ui.book.source.debug.BookSourceDebugRoute
 import io.legado.app.ui.book.source.debug.BookSourceDebugViewModel
+import io.legado.app.ui.book.source.repair.SourceRepairRoute
+import io.legado.app.ui.book.source.repair.SourceRepairViewModel
 import io.legado.app.ui.book.source.edit.BookSourceEditRoute
 import io.legado.app.ui.book.source.edit.BookSourceEditViewModel
 import io.legado.app.ui.book.source.manage.BookSourceRouteScreen
@@ -330,6 +332,19 @@ fun MainActivity.mainEntryProvider(
             onDebugSource = { sourceUrl ->
                 onNavigateToRoute(MainRouteBookSourceDebug(sourceUrl))
             },
+            onAiFixSource = { sourceUrl ->
+                onNavigateToRoute(MainRouteBookSourceRepair(sourceUrl))
+            },
+        )
+    }
+    entry<MainRouteBookSourceRepair> { route ->
+        val viewModel = koinViewModel<SourceRepairViewModel>(
+            key = "SourceRepair:${route.sourceUrl.orEmpty()}",
+        )
+        SourceRepairRoute(
+            sourceUrl = route.sourceUrl,
+            viewModel = viewModel,
+            onBack = { onNavigateBack() },
         )
     }
     entry<MainRouteBookSourceEdit> { route ->

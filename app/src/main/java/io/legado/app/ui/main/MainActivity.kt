@@ -179,6 +179,9 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
         fun createRssSourceEditIntent(context: Context, sourceUrl: String? = null) =
             MainIntent.createRssSourceEditIntent(context, sourceUrl)
 
+        fun createBookSourceRepairIntent(context: Context, sourceUrl: String?) =
+            MainIntent.createBookSourceRepairIntent(context, sourceUrl)
+
         fun createBookSourceDebugIntent(context: Context, sourceUrl: String?) =
             MainIntent.createBookSourceDebugIntent(context, sourceUrl)
 

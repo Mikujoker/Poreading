@@ -20,6 +20,8 @@ import io.legado.app.api.controller.BookSourceController
 import io.legado.app.api.controller.ReplaceRuleController
 import io.legado.app.api.controller.RssSourceController
 import io.legado.app.api.controller.SourceDebugController
+import io.legado.app.api.controller.AiProfileController
+import io.legado.app.api.controller.SourceRepairApiController
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.service.WebService
 import io.legado.app.utils.LogUtils
@@ -139,6 +141,12 @@ class KtorServer(private val port: Int) {
                 get("/getRssSources") { handleGet { RssSourceController.sources } }
                 get("/getReplaceRules") { handleGet { ReplaceRuleController.allRules } }
                 get("/getCookie") { handleGet { SourceDebugController.getCookie(it) } }
+                get("/getRepairJournal") { handleGet { SourceRepairApiController.getJournal() } }
+                post("/repairSource") { handlePost { SourceRepairApiController.repair(it) } }
+                post("/generateSource") { handlePost { SourceRepairApiController.generate(it) } }
+                post("/fillLoginFields") { handlePost { SourceRepairApiController.fillLoginFields(it) } }
+                post("/saveAiProfile") { handlePost { AiProfileController.saveDefaultChat(it) } }
+                get("/getAiProfile") { handleGet { AiProfileController.getDefaultChat() } }
                 get("/verifyLogin") { handleGet { SourceDebugController.verifyLogin(it) } }
                 get("/fetchPage") { handleGet { SourceDebugController.fetchPage(it) } }
 

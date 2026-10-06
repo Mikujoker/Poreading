@@ -273,6 +273,7 @@ import io.legado.app.ui.book.search.SearchViewModel
 import io.legado.app.ui.book.searchContent.SearchContentViewModel
 import io.legado.app.ui.book.source.debug.BookSourceDebugViewModel
 import io.legado.app.ui.book.source.edit.BookSourceEditViewModel
+import io.legado.app.ui.book.source.repair.SourceRepairViewModel
 import io.legado.app.ui.book.source.manage.BookSourceViewModel
 import io.legado.app.ui.book.toc.TocViewModel
 import io.legado.app.ui.book.toc.rule.TxtTocRuleViewModel
@@ -578,6 +579,7 @@ val appModule = module {
     viewModelOf(::BookSourceViewModel)
     viewModelOf(::BookSourceEditViewModel)
     viewModelOf(::BookSourceDebugViewModel)
+    viewModelOf(::SourceRepairViewModel)
     viewModelOf(::RssSourceEditViewModel)
     viewModelOf(::RssSourceDebugViewModel)
     viewModelOf(::RssSortViewModel)

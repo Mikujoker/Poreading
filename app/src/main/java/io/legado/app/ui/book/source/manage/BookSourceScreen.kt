@@ -104,6 +104,7 @@ fun BookSourceRouteScreen(
     onLoginSource: (String) -> Unit,
     onSearchSource: (String, String) -> Unit,
     onDebugSource: (String) -> Unit,
+    onAiFixSource: (String) -> Unit,
 ) {
     LaunchedEffect(initialImportUrl) {
         initialImportUrl?.let { viewModel.onIntent(BookSourceIntent.Import(it)) }
@@ -153,6 +154,7 @@ fun BookSourceRouteScreen(
         onLoginSource = onLoginSource,
         onSearchSource = onSearchSource,
         onDebugSource = onDebugSource,
+        onAiFixSource = onAiFixSource,
     )
 }
 
@@ -169,11 +171,11 @@ fun BookSourceScreen(
     onLoginSource: (String) -> Unit,
     onSearchSource: (String, String) -> Unit,
     onDebugSource: (String) -> Unit,
+    onAiFixSource: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val rules = state.items
     val scope = rememberCoroutineScope()
-    val aiFixSoonMessage = stringResource(R.string.source_ai_fix_soon)
     val selectedIds = state.selectedIds
     val listState = rememberLazyListState()
     var deleteIds by remember { mutableStateOf<Set<String>?>(null) }
@@ -693,12 +695,7 @@ fun BookSourceScreen(
                                     onLogin = { onLoginSource(item.id) },
                                     onSearch = { onSearchSource(item.name, item.id) },
                                     onDebug = { onDebugSource(item.id) },
-                                    onAiFix = {
-                                        // AI 修复还没接上（见 TODO D2），先给个明确回执，不做假动作
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar(aiFixSoonMessage)
-                                        }
-                                    },
+                                    onAiFix = { onAiFixSource(item.id) },
                                     onDelete = { deleteIds = setOf(item.id) },
                                     onSetExploreEnabled = { enabled ->
                                         onIntent(
