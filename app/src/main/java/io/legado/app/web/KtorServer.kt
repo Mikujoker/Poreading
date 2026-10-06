@@ -139,6 +139,8 @@ class KtorServer(private val port: Int) {
                 get("/getRssSources") { handleGet { RssSourceController.sources } }
                 get("/getReplaceRules") { handleGet { ReplaceRuleController.allRules } }
                 get("/getCookie") { handleGet { SourceDebugController.getCookie(it) } }
+                get("/verifyLogin") { handleGet { SourceDebugController.verifyLogin(it) } }
+                get("/fetchPage") { handleGet { SourceDebugController.fetchPage(it) } }
 
                 get("{...}") {
                     WebService.serve()
