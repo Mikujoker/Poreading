@@ -208,6 +208,10 @@ dependencies {
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.viewpager2)
     implementation(libs.androidx.webkit)
+    // EPUB 无损渲染：Readium Kotlin toolkit（navigator 内部就是 WebView，分页/缩放/手势/主题/Locator 现成）
+    implementation(libs.readium.shared)
+    implementation(libs.readium.streamer)
+    implementation(libs.readium.navigator)
     implementation(libs.material)
     implementation(libs.flexbox)
     implementation(libs.gson)

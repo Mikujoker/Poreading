@@ -76,7 +76,6 @@ import io.legado.app.constant.ReadMenuBlurMode
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.core.ui.morph.BookMorphHost
 import io.legado.app.core.ui.morph.LocalBookMorph
-import io.legado.app.feature.reader.EpubWebContent
 import io.legado.app.feature.reader.ReaderBackgroundSurface
 import io.legado.app.feature.reader.ReaderCanvasSurface
 import io.legado.app.feature.reader.core.gesture.ReaderTapActionGrid
@@ -87,7 +86,6 @@ import io.legado.app.feature.reader.platform.ReaderPerfTrace
 import io.legado.app.help.IntentHelp
 import io.legado.app.help.book.isEpub
 import io.legado.app.model.ReadBook
-import io.legado.app.model.localBook.EpubWebDocument
 import io.legado.app.model.SourceCallBack
 import io.legado.app.model.translation.TranslationChapterStatus
 import io.legado.app.ui.book.info.BookInfoActivity
