@@ -1,8 +1,8 @@
 {
-  "bookSourceName": "轻小说文库(wenku8)·webView版v11【草案】",
+  "bookSourceName": "轻小说文库(wenku8)·webView版v12【草案】",
   "bookSourceGroup": "自建",
   "bookSourceUrl": "https://www.wenku8.net/index.php",
-  "bookSourceComment": "【草案 v11】搜索：/modules/article/search.php?searchkey=<GBK转义>&page={{page}}（GET+webView，必须登录；唯一命中会 302 到详情页，bookList 只匹配结果表格 div[style*=\"width:373px\"]，空列表走详情页兜底）。详情页 coverUrl 必须限定在信息块 #content div[style*=\"99%\"] 内——否则会连\"同类小说推荐\"的 9 张封面一起取到，拼成多行无效 URL → 封面加载失败 → 掉回默认封面。其余同 v10。",
+  "bookSourceComment": "【草案 v12】搜索：/modules/article/search.php?searchkey=<GBK转义>&page={{page}}（GET+webView，必须登录；唯一命中会 302 到详情页，bookList 只匹配结果表格 div[style*=\"width:373px\"]，空列表走详情页兜底）。详情页 coverUrl 必须限定在信息块 #content div[style*=\"99%\"] 内——否则会连\"同类小说推荐\"的 9 张封面一起取到，拼成多行无效 URL → 封面加载失败 → 掉回默认封面。其余同 v10。 v12：coverUrl 采纳 ai_repair_source.py 第 1 轮的提案（用容器 td[width=20%] 限定，比 v11 的 #content div[style*=\"99%\"] 少依赖内联样式），两个镜像页各只命中 1 张封面、端上断言通过。",
   "enabled": true,
   "enabledCookieJar": true,
   "header": "{\"User-Agent\":\"Mozilla/5.0 (Linux; Android 16; 2201122C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36\",\"Referer\":\"https://www.wenku8.net/\"}",
@@ -23,7 +23,7 @@
     "author": "td:contains(小说作者)@text##小说作者：",
     "kind": "td:contains(文库分类)@text##文库分类：",
     "intro": "meta[name='description']@content",
-    "coverUrl": "#content div[style*='99%'] img[src*='img.wenku8.com']@src",
+    "coverUrl": "td[width='20%'] img[src*='img.wenku8.com']@src",
     "tocUrl": "a:contains(小说目录)@href@js:result + ',{\"webView\":true,\"webViewDelayTime\":3000}'"
   },
   "ruleToc": {

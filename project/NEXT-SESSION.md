@@ -97,6 +97,13 @@
   `python3 backfill_covers.py [--dry-run] [--limit N] [--name 子串] [--source 源URL]`；
   原则：**只补空的、只在站点确实给出封面时才写**（解析不到就保持默认封面，绝不写空值/覆盖已有封面）。
   2026-10-07 实跑 19 本空封面书：补到 0（12 本源已消失：`origin` 指向已下线的 `44yydstxt234` 书库域名；7 本源在但站点解析不到，其中 `jishuge.vip` 那条源根本没 `coverUrl` 规则）
+- `project/tools/ai_repair_source.py` —— **AI 修源循环**：出口自检 → 取页分级 → 机械探针 → LLM **单字段** patch →
+  端上真引擎断言 → 回滚/写回；预算 3 轮 / 10 分钟 / 200k tokens。
+  ⚠️ `--check-only` 必须先校准判据（拿已知好值/坏值各跑一次），坏判据会让 AI 围着假失败空转。
+- `.agents/skills/legado-source-repair/` —— **书源修复 skill**（流程、harness 接口、判据表、坑表 +
+  `references/wenku8-v11-retro.md` 实战复盘）。做书源诊断/修复前先读它；已登记进 `AGENTS.md` 技能路由。
+- app 侧新增两个原语（AI 修源用）：`GET /fetchPage`（手机 WebView 抓页，能过 CF）、
+  `GET /verifyLogin`（拉起内置浏览器人工过验证/登录，完成后 cookie 落库）
 - `legado-work/drive_dbg.sh`、`drive_toc.sh` —— adb 驱动调试页的脚本（坐标待用 uiautomator dump 校正）
 
 ### 凭据（都在 `legado-work/`，不入库、不进文档）

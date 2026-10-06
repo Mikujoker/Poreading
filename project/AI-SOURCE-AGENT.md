@@ -150,6 +150,22 @@ Legado 书源的规则是**按页面类型**分组的，这是整个系统的骨
 - 另外：搜索 URL 用 `/modules/article/search.php?searchkey=<GBK转义>&page={{page}}`（GET + webView）；
   别带 `searchtype=articlename`（实测那种形态返回 0 结果）。
 
+**2026-10-07 AI 修源 v0（已落地，先把流程跑通）**
+
+- **流程与坑固化成了 skill**：`.agents/skills/legado-source-repair/`（`SKILL.md` + `references/wenku8-v11-retro.md`）；
+  已登记进仓库 `AGENTS.md` 的技能路由。做书源诊断/修复前**先读它**——纯 LLM 循环不知道这些坑
+  （实测：它会写出 `//td/img@src` 这种非法 XPath，也会把 CF 挑战页当解析成功）。
+- 循环实现：`project/tools/ai_repair_source.py` = 出口自检 → 取页分级 → 机械探针 → LLM **单字段** patch →
+  **端上真引擎断言** → 回滚/写回；预算 3 轮 / 10 分钟 / 200k tokens，超预算输出 needs_human（含每轮证据）。
+- 新增两个端上原语（AI 流程用，不再依赖规则触发）：
+  `GET /fetchPage`（手机 WebView 抓页，能过 CF）、`GET /verifyLogin`（拉起内置浏览器人工过验证，完成后 cookie 落库）。
+- **判据（assertion）必须先校准**：已知好值必须 ✓、已知坏值必须 ✗。本轮判据曾漏剥日志行首 `└`，
+  导致 AI 三轮全被误判成"0 个封面"而空转（坏判据比没判据更糟）；另加全局前置：文本含挑战页标记直接判 ✗
+  （否则 `书名=Just a moment…` 会被当成解析成功）。
+- 实测（把 wenku8 的 coverUrl 还原成坏值后跑循环）：第 1 轮自主改成
+  `td[width='20%'] img[src*='img.wenku8.com']@src`，端上断言通过（唯一封面 + 图片可下载，已采纳入 v12）；
+  另一次目标是"站点确实没有封面"的源，循环给出 `field_not_on_page` 结论而不是硬造选择器——**该认输时认输**。
+
 **⑤ 交付层（写回）**
 只写 patch 命中的字段 → 生成可导入 JSON → 人审 diff → 应用（app 内导入，或 Web API `/saveBookSources`）
 → 记录证据（before/after + 验证输出）。
