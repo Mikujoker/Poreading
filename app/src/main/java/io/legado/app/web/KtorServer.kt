@@ -19,6 +19,7 @@ import io.legado.app.api.controller.BookController
 import io.legado.app.api.controller.BookSourceController
 import io.legado.app.api.controller.ReplaceRuleController
 import io.legado.app.api.controller.RssSourceController
+import io.legado.app.api.controller.SourceDebugController
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.service.WebService
 import io.legado.app.utils.LogUtils
@@ -61,6 +62,7 @@ class KtorServer(private val port: Int) {
 
             routing {
                 post("/saveBookSource") { handlePost { BookSourceController.saveSource(it) } }
+                post("/debugBookSource") { handlePost { SourceDebugController.debugSource(it) } }
                 post("/saveBookSources") { handlePost { BookSourceController.saveSources(it) } }
                 post("/deleteBookSources") { handlePost { BookSourceController.deleteSources(it) } }
                 post("/saveBook") { handlePost { BookController.saveBook(it) } }
@@ -136,6 +138,7 @@ class KtorServer(private val port: Int) {
                 get("/getRssSource") { handleGet { RssSourceController.getSource(it) } }
                 get("/getRssSources") { handleGet { RssSourceController.sources } }
                 get("/getReplaceRules") { handleGet { ReplaceRuleController.allRules } }
+                get("/getCookie") { handleGet { SourceDebugController.getCookie(it) } }
 
                 get("{...}") {
                     WebService.serve()
@@ -206,7 +209,7 @@ class KtorServer(private val port: Int) {
     }
 
     private suspend fun RoutingContext.handleGet(
-        block: (Map<String, List<String>>) -> ReturnData?
+        block: suspend (Map<String, List<String>>) -> ReturnData?
     ) {
         WebService.serve()
         try {

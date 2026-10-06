@@ -29,7 +29,7 @@ data class HttpTTS(
     override var jsLib: String? = null,
     @ColumnInfo(defaultValue = "0")
     override var enabledCookieJar: Boolean? = false,
-    var loginCheckJs: String? = null,
+    override var loginCheckJs: String? = null,
     /**
      * 源级语速, 0..80, 实际倍速为 (speed + 5) / 10, null 时使用默认值 5 (1 倍速)。
      * 仅当源接口支持语速参数 ({{speakSpeed}}) 时影响合成结果。

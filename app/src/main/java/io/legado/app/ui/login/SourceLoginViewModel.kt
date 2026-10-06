@@ -18,6 +18,9 @@ import io.legado.app.data.repository.RssRepository
 import io.legado.app.data.repository.SearchRepository
 import io.legado.app.domain.gateway.DownloadCacheSettingsGateway
 import io.legado.app.help.http.CookieStore
+import io.legado.app.help.http.StrResponse
+import io.legado.app.model.analyzeRule.AnalyzeUrl
+import io.legado.app.model.analyzeRule.RuleData
 import io.legado.app.model.AudioPlay
 import io.legado.app.model.ReadBook
 import io.legado.app.utils.GSON
@@ -160,6 +163,10 @@ class SourceLoginViewModel(
                     )
                 }
                 if (!loaded.loginUi.isNullOrBlank()) buildForm()
+                // 已经登录的话，打开登录页只需确认一下就自动退出
+                if (loaded.loginUi.isNullOrBlank() && !loaded.loginCheckJs.isNullOrBlank()) {
+                    verifyWebLogin(byUser = false)
+                }
             }.onFailure { error ->
                 AppLog.put("登录 UI 初始化失败\n$error", error, true)
                 _effects.tryEmit(
@@ -281,9 +288,51 @@ class SourceLoginViewModel(
         }.getOrNull()
     }
 
+    /**
+     * 用书源自己的 loginCheckJs 真跑一次 AnalyzeUrl（与阅读时同一条路径）判定是否已登录。
+     * 约定：loginCheckJs 返回响应对象=已登录，返回 false/null=未登录。
+     */
+    private fun verifyWebLogin(byUser: Boolean) {
+        viewModelScope.launch {
+            val currentSource = source ?: return@launch
+            val checkJs = currentSource.loginCheckJs?.takeIf { it.isNotBlank() } ?: return@launch
+            if (byUser) _effects.tryEmit(SourceLoginEffect.ShowMessage("正在校验登录状态…"))
+            val loggedIn = runCatching {
+                withContext(Dispatchers.IO) {
+                    val checkUrl = currentSource.loginUrl?.let {
+                        io.legado.app.utils.NetworkUtils.getAbsoluteURL(currentSource.getKey(), it)
+                    } ?: currentSource.getKey()
+                    val analyzeUrl = AnalyzeUrl(
+                        mUrl = """$checkUrl,{"webView":true,"webViewDelayTime":3000}""",
+                        baseUrl = currentSource.getKey(),
+                        source = currentSource,
+                        ruleData = RuleData(),
+                        coroutineContext = coroutineContext,
+                    )
+                    val res = analyzeUrl.getStrResponseAwait()
+                    analyzeUrl.evalJS(checkJs, res) is StrResponse
+                }
+            }.onFailure {
+                AppLog.put("登录态校验失败\n${it.localizedMessage}", it)
+            }.getOrDefault(false)
+            AppLog.putDebug("Web登录校验: ${if (loggedIn) "已登录" else "未登录"}")
+            if (loggedIn) {
+                _effects.tryEmit(SourceLoginEffect.ShowMessage("已登录"))
+                _effects.tryEmit(SourceLoginEffect.Finish)
+            } else if (byUser) {
+                _effects.tryEmit(SourceLoginEffect.ShowMessage("未检测到登录状态，请在页面内完成登录后重试"))
+            }
+        }
+    }
+
     private fun confirm() {
         if (_uiState.value.mode == SourceLoginMode.Web) {
-            _uiState.update { it.copy(checkingCookie = true) }
+            if (source?.loginCheckJs.isNullOrBlank()) {
+                // 没有 loginCheckJs 就没法校验，退回旧行为：重新加载登录页并关闭
+                _uiState.update { it.copy(checkingCookie = true) }
+            } else {
+                verifyWebLogin(byUser = true)
+            }
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -326,12 +375,11 @@ class SourceLoginViewModel(
     }
 
     private fun saveCookie(url: String) {
-        source?.let {
-            CookieStore.setCookie(
-                it.getKey(),
-                CookieManager.getInstance().getCookie(url)
-            )
-        }
+        val currentSource = source ?: return
+        // 空值不能写：读不到 cookie 时写空串会把上一次存下的有效会话覆盖掉（jar/db 里 wenku8.net 就是这么变空的）
+        val cookie = CookieManager.getInstance().getCookie(url)
+        if (cookie.isNullOrBlank()) return
+        CookieStore.setCookie(currentSource.getKey(), cookie)
     }
 }
 

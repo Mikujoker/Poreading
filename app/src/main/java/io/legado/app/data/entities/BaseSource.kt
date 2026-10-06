@@ -40,6 +40,11 @@ interface BaseSource : JsExtensions {
     var loginUrl: String?
 
     /**
+     * 登录检测 js：返回响应对象=已登录，返回 false/null=未登录
+     */
+    var loginCheckJs: String?
+
+    /**
      * 登录UI
      */
     var loginUi: String?

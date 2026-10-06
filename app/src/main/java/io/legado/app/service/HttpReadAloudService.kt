@@ -851,7 +851,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                 currentCoroutineContext().ensureActive()
                 val checkJs = httpTts.loginCheckJs
                 if (checkJs?.isNotBlank() == true) {
-                    response = analyzeUrl.evalJS(checkJs, response) as Response
+                    (analyzeUrl.evalJS(checkJs, response) as? Response)?.let { response = it }
                 }
                 response.headers["Content-Type"]?.let { contentType ->
                     val contentType = contentType.substringBefore(";")

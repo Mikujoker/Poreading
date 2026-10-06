@@ -58,7 +58,7 @@ object Rss {
         val res = kotlin.runCatching {
             analyzeUrl.getStrResponseAwait().let {
                 if (!checkJs.isNullOrBlank()) {
-                    analyzeUrl.evalJS(checkJs, it) as StrResponse
+                    (analyzeUrl.evalJS(checkJs, it) as? StrResponse) ?: it
                 } else {
                     it
                 }
@@ -67,7 +67,7 @@ object Rss {
             if (!checkJs.isNullOrBlank()) {
                 val errResponse = analyzeUrl.getErrStrResponse(throwable)
                 try {
-                    (analyzeUrl.evalJS(checkJs, errResponse) as StrResponse).also {
+                    ((analyzeUrl.evalJS(checkJs, errResponse) as? StrResponse) ?: errResponse).also {
                         if (it.code() == 500) {
                             throw throwable
                         }
@@ -113,7 +113,7 @@ object Rss {
         val res = kotlin.runCatching {
             analyzeUrl.getStrResponseAwait().let {
                 if (!checkJs.isNullOrBlank()) {
-                    analyzeUrl.evalJS(checkJs, it) as StrResponse
+                    (analyzeUrl.evalJS(checkJs, it) as? StrResponse) ?: it
                 } else {
                     it
                 }
@@ -122,7 +122,7 @@ object Rss {
             if (!checkJs.isNullOrBlank()) {
                 val errResponse = analyzeUrl.getErrStrResponse(throwable)
                 try {
-                    (analyzeUrl.evalJS(checkJs, errResponse) as StrResponse).also {
+                    ((analyzeUrl.evalJS(checkJs, errResponse) as? StrResponse) ?: errResponse).also {
                         if (it.code() == 500) {
                             throw throwable
                         }

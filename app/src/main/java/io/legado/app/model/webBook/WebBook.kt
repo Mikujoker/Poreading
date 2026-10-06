@@ -72,7 +72,8 @@ object WebBook {
         //检测书源是否已登录
         bookSource.loginCheckJs?.let { checkJs ->
             if (checkJs.isNotBlank()) {
-                res = analyzeUrl.evalJS(checkJs, res) as StrResponse
+                // 只有返回响应对象才算“已登录”；其他返回值不该让整次取页失败
+                (analyzeUrl.evalJS(checkJs, res) as? StrResponse)?.let { res = it }
             }
         }
         checkRedirect(bookSource, res)
@@ -125,7 +126,7 @@ object WebBook {
         //检测书源是否已登录
         bookSource.loginCheckJs?.let { checkJs ->
             if (checkJs.isNotBlank()) {
-                res = analyzeUrl.evalJS(checkJs, result = res) as StrResponse
+                (analyzeUrl.evalJS(checkJs, result = res) as? StrResponse)?.let { res = it }
             }
         }
         checkRedirect(bookSource, res)
@@ -172,7 +173,7 @@ object WebBook {
         var res = analyzeUrl.getStrResponseAwait()
         bookSource.loginCheckJs?.let { checkJs ->
             if (checkJs.isNotBlank()) {
-                res = analyzeUrl.evalJS(checkJs, result = res) as StrResponse
+                (analyzeUrl.evalJS(checkJs, result = res) as? StrResponse)?.let { res = it }
             }
         }
         checkRedirect(bookSource, res)
@@ -210,7 +211,7 @@ object WebBook {
         var res = analyzeUrl.getStrResponseAwait()
         bookSource.loginCheckJs?.let { checkJs ->
             if (checkJs.isNotBlank()) {
-                res = analyzeUrl.evalJS(checkJs, result = res) as StrResponse
+                (analyzeUrl.evalJS(checkJs, result = res) as? StrResponse)?.let { res = it }
             }
         }
         checkRedirect(bookSource, res)
@@ -269,7 +270,7 @@ object WebBook {
             //检测书源是否已登录
             bookSource.loginCheckJs?.let { checkJs ->
                 if (checkJs.isNotBlank()) {
-                    res = analyzeUrl.evalJS(checkJs, result = res) as StrResponse
+                    (analyzeUrl.evalJS(checkJs, result = res) as? StrResponse)?.let { res = it }
                 }
             }
             checkRedirect(bookSource, res)
@@ -347,7 +348,7 @@ object WebBook {
                 //检测书源是否已登录
                 bookSource.loginCheckJs?.let { checkJs ->
                     if (checkJs.isNotBlank()) {
-                        res = analyzeUrl.evalJS(checkJs, result = res) as StrResponse
+                        (analyzeUrl.evalJS(checkJs, result = res) as? StrResponse)?.let { res = it }
                     }
                 }
                 checkRedirect(bookSource, res)
@@ -432,7 +433,7 @@ object WebBook {
             //检测书源是否已登录
             bookSource.loginCheckJs?.let { checkJs ->
                 if (checkJs.isNotBlank()) {
-                    res = analyzeUrl.evalJS(checkJs, result = res) as StrResponse
+                    (analyzeUrl.evalJS(checkJs, result = res) as? StrResponse)?.let { res = it }
                 }
             }
             checkRedirect(bookSource, res)

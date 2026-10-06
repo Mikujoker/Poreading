@@ -71,7 +71,7 @@ data class BookSource(
     // 登录UI
     override var loginUi: String? = null,
     // 登录检测js
-    var loginCheckJs: String? = null,
+    override var loginCheckJs: String? = null,
     // 封面解密js
     var coverDecodeJs: String? = null,
     // 注释

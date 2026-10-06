@@ -41,7 +41,7 @@ data class RssSource(
     /**登录Ui**/
     override var loginUi: String? = null,
     /**登录检测js**/
-    var loginCheckJs: String? = null,
+    override var loginCheckJs: String? = null,
     /**封面解密js**/
     var coverDecodeJs: String? = null,
     /**分类Url**/

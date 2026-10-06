@@ -169,11 +169,12 @@ class BackstageWebView(
     }
 
     private fun setCookie(url: String) {
-        tag?.let {
-            Coroutine.async(executeContext = IO) {
-                val cookie = CookieManager.getInstance().getCookie(url)
-                CookieStore.setCookie(it, cookie)
-            }
+        val sourceTag = tag ?: return
+        // CookieManager 要求带 Looper 的线程：onPageFinished 本来就在主线程，直接读；写库再切 IO
+        val cookie = CookieManager.getInstance().getCookie(url)
+        if (cookie.isNullOrBlank()) return
+        Coroutine.async(executeContext = IO) {
+            CookieStore.setCookie(sourceTag, cookie)
         }
     }
 

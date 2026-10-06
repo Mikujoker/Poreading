@@ -23,6 +23,10 @@ object CookieStore : CookieManagerInterface {
      *保存cookie到数据库，会自动识别url的二级域名
      */
     override fun setCookie(url: String, cookie: String?) {
+        if (cookie.isNullOrBlank()) {
+            // 空值必须丢弃：WebView 读不到 cookie 时会返回 null/空串，写下去会把上一次的有效会话覆盖掉
+            return
+        }
         try {
             val domain = NetworkUtils.getSubDomain(url)
             CacheManager.putMemory("${domain}_cookie", cookie ?: "")
