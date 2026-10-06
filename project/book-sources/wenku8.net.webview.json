@@ -1,8 +1,8 @@
 {
-  "bookSourceName": "轻小说文库(wenku8)·webView版【草案】",
+  "bookSourceName": "轻小说文库(wenku8)·webView版v2【草案】",
   "bookSourceGroup": "自建",
-  "bookSourceUrl": "https://www.wenku8.net",
-  "bookSourceComment": "【草案·webView 版】本站在手机线路上会返回 Cloudflare『Just a moment...』托管挑战，纯 HTTP 解不了、cookie 也没用（实测：浏览器导出的 cf_clearance+同 UA 仍被拦），所以四处取页都挂了 webView。别挂梯子（机房 IP 直接被硬拦）。调试页没有 webView 开关，请用 app 的搜索来验。",
+  "bookSourceUrl": "https://www.wenku8.net/index.php",
+  "bookSourceComment": "【草案·webView 版 v2】bookSourceUrl 故意带 /index.php：Legado 导入按 url 判重且不给覆盖，改掉才导得进来（规则全是根相对路径，不受基址影响）。本站手机线路上返回 Cloudflare『Just a moment...』托管挑战，纯 HTTP 解不了、cookie 也没用，所以四处取页都挂 webView。别挂梯子（机房 IP 会被硬拦）。",
   "enabled": true,
   "enabledCookieJar": true,
   "header": "{\"User-Agent\":\"Mozilla/5.0 (Linux; Android 16; 2201122C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36\",\"Referer\":\"https://www.wenku8.net/\"}",
