@@ -84,6 +84,7 @@ val appDatabaseModule = module {
     factory<DictRuleDao> { get<AppDatabase>().dictRuleDao }
     factory<ExactChapterPageCountDao> { get<AppDatabase>().exactChapterPageCountDao }
     factory<KeyboardAssistsDao> { get<AppDatabase>().keyboardAssistsDao }
+    factory<io.legado.app.data.dao.OpdsSourceDao> { get<AppDatabase>().opdsSourceDao }
     factory<ServerDao> { get<AppDatabase>().serverDao }
     factory<HomepageModuleDao> { get<AppDatabase>().homepageModuleDao }
     factory<HomepageCustomSetDao> { get<AppDatabase>().homepageCustomSetDao }

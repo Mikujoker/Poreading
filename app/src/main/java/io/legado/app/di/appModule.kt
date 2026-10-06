@@ -542,6 +542,7 @@ val appModule = module {
     singleOf(::VerifyBookmarkTargetUseCase)
     singleOf(::RelocateMarkingTargetUseCase)
     singleOf(::ReplaceRuleRepository)
+    single { io.legado.app.data.repository.OpdsRepository(get()) }
     single<DictionaryGateway> { DictionaryRepositoryImpl() }
     singleOf(::TranslateChapterUseCase)
     singleOf(::AiChatGenerationUseCase)
