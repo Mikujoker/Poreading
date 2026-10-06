@@ -29,6 +29,7 @@ UA_MOBILE = ("Mozilla/5.0 (Linux; Android 16; 2201122C) AppleWebKit/537.36 "
              "(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36")
 SESSION = requests.Session()
 SOURCE_HEADERS: dict = {}
+EXTRA_HEADERS: dict = {}
 
 
 def log(ok: str, field: str, sample: str = "") -> None:
@@ -38,6 +39,7 @@ def log(ok: str, field: str, sample: str = "") -> None:
 def fetch(url: str, extra: dict | None = None) -> BeautifulSoup:
     headers = {"User-Agent": UA_MOBILE, "Accept-Language": "zh-CN,zh;q=0.9"}
     headers.update(SOURCE_HEADERS)
+    headers.update(EXTRA_HEADERS)
     options = dict(extra or {})
     method = options.pop("method", "GET")
     resp = SESSION.request(method, url, headers=headers, timeout=25, **options)
@@ -150,11 +152,11 @@ def check_search(source: dict, key: str) -> str:
     return first_url
 
 
-def check_pages(source: dict, book_url: str, chapter_url: str) -> None:
+def check_pages(source: dict, book_url: str, toc_url: str, chapter_url: str) -> None:
     for label, page_url, rule_key, fields in (
         ("详情页", book_url, "ruleBookInfo",
          (("name", "text"), ("author", "text"), ("intro", "text"), ("coverUrl", "src"))),
-        ("目录页", book_url, "ruleToc",
+        ("目录页", toc_url, "ruleToc",
          (("chapterList", "element"), ("chapterName", "text"), ("chapterUrl", "href"))),
         ("正文页", chapter_url, "ruleContent", (("content", "html"),)),
     ):
@@ -201,11 +203,20 @@ def main() -> int:
     parser.add_argument("--keyword", default="")
     parser.add_argument("--book-url", default="")
     parser.add_argument("--chapter-url", default="")
+    parser.add_argument("--toc-url", default="")
+    parser.add_argument("--cookies", default="", help="CDP 导出的 cookie JSON（绕过 CF/带登录态用）")
+    parser.add_argument("--ua", default="", help="必须与取得 cookie 时的 UA 一致")
     args = parser.parse_args()
     source = json.loads(open(args.source, encoding="utf-8").read())
     if isinstance(source, list):
         source = source[0]
     global SOURCE_HEADERS
+    if args.cookies:
+        jar = json.load(open(args.cookies, encoding="utf-8"))
+        EXTRA_HEADERS["Cookie"] = "; ".join(f"{c['name']}={c['value']}" for c in jar)
+        print(f"   带 {len(jar)} 条 cookie 取页")
+    if args.ua:
+        EXTRA_HEADERS["User-Agent"] = args.ua
     try:
         SOURCE_HEADERS = json.loads(source.get("header") or "{}")
     except json.JSONDecodeError:
@@ -226,7 +237,7 @@ def main() -> int:
                 print(f"   （目录第一项 -> {chapter_url}）")
         except Exception as exc:
             print(f"   取目录首项失败：{exc}")
-    check_pages(source, book_url, chapter_url)
+    check_pages(source, book_url, args.toc_url or book_url, chapter_url)
     return 0
 
 

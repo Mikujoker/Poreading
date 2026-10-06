@@ -1,0 +1,32 @@
+{
+  "bookSourceName": "轻小说文库(wenku8)【草案·待端上验证】",
+  "bookSourceGroup": "自建",
+  "bookSourceUrl": "https://www.wenku8.net",
+  "bookSourceComment": "【草案】选择器取自真浏览器渲染后的页面（project/artifacts/wenku8_*_page.html），但**尚未在端上验证**。硬约束：1) 别挂梯子——机房 IP 会被 Cloudflare 拦（实测日本节点 403，直连家庭宽带 + 真 Chrome 一把过）；2) 本站在纯 HTTP 下即使带上浏览器导出的 cf_clearance + 同 UA 仍 403（实测），所以取页必须走 webView，纯 OkHttp 不可能工作；3) header 的 UA 要与登录时一致。搜索结果的列表行选择器还没定（需抓 /so.php 的 POST 结果页）。",
+  "enabled": true,
+  "enabledCookieJar": true,
+  "header": "{\"User-Agent\":\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36\",\"Referer\":\"https://www.wenku8.net/\"}",
+  "loginUrl": "https://www.wenku8.net/login.php",
+  "searchUrl": "/so.php,{\"method\":\"POST\",\"body\":\"searchtype=articlename&searchkey={{key}}&charset=gbk\",\"charset\":\"gbk\",\"webView\":true}",
+  "ruleSearch": {
+    "bookList": "#content table tr",
+    "name": "a@text",
+    "bookUrl": "a@href"
+  },
+  "ruleBookInfo": {
+    "name": "title@text##\\s*-.*",
+    "author": "td:contains(小说作者)@text##小说作者：",
+    "kind": "td:contains(文库分类)@text##文库分类：",
+    "intro": "meta[name='description']@content",
+    "coverUrl": "img[src*='img.wenku8.com']@src",
+    "tocUrl": "a:contains(小说目录)@href"
+  },
+  "ruleToc": {
+    "chapterList": "td.ccss a",
+    "chapterName": "text",
+    "chapterUrl": "href"
+  },
+  "ruleContent": {
+    "content": "#content@html"
+  }
+}
