@@ -34,8 +34,10 @@
 - **E1** release 构建 → `legado-work/rel.apk` 33MB（debug 106MB），release 变体 minify + 签名齐备
 
 **要做（用户已确认，其余已从需求删除）**
-1. **本地书文件治理（C 组）**：C1 239 个乱码改名 + C2 改名同步磁盘源文件（映射表 `artifacts/rename-plan.csv` 已备好，不需要重导/回填进度）；C3/C4/C5/C6 视情况推进
-2. **EPUB 无损渲染**（WebView 加载 spine + 注入主题 CSS，有内嵌封面就用内嵌的）
+1. ✅ **本地书文件治理 已完成**（2026-10-06）：C1 用新增的 `POST /renameLocalBooks` 把 **141 本**乱码书名搬到 `Download/legado/novel/<书名><ext>` 并同步 DB（路径含乱码 134 → **0**，清理历史重复 136 条，进度保留）；C2 **本来就有**（`help/book/LocalBookRename.kt` + 编辑页会问"要不要连磁盘源文件一起改名"）；C3-C6 用户说"视情况"（Browser 目录还剩 79 个孤立文件）
+2. ⏳ **EPUB 无损阅读**（用户已定方案：**整本改 WebView**，spine 逐章 + 注入主题 CSS + 保留目录/进度；`androidx.webkit` 已依赖 → `WebViewAssetLoader` 或 `shouldInterceptRequest` 从 zip 取资源都可以）
+3. ⏳ 之后：**版本切正式 release**（R8 + ABI 拆分；E1 已出过 33MB `rel.apk`）+ 确认流畅度；注意 release 是 `io.legato.kazusa`（另一 app → 数据要迁移）、无 `run-as`
+4. ✅ PDF 小活已完成：`番外篇/能天使` 经 `refreshToc` 自愈（章节表 3 行 → 24 行）
 
 **已按用户要求从需求删除（不再跟踪）**：B4 首开提速、E2 存储权限主动申请、D3 AI 找封面、D4 AI 分章命名、书源去重 12680 条入库与其验证、A2 书源体检方案、B5 两个待决点（书名重复 / 书名块位置）
 
