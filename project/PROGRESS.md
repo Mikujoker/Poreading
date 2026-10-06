@@ -229,3 +229,19 @@
 - **注意**：Web API 走 `127.0.0.1:1122` 时本机 `http_proxy=127.0.0.1:7890` 会抢答 **502**，
   脚本里要 `urllib.request.ProxyHandler({})` 绕开（上一轮 `tools/book_debug.py` 早踩过同一个坑）；
   另外 Web 服务随 MainActivity 起停，重装/进程被杀后要先 `am start` 拉起再用 API
+
+### 目录重建 + TXT 兜底 + 推 GitHub（同日）
+
+- 142 本被旧代码清空目录的书：查 `/getChapterList` 时代码在空表时会自动回退 `refreshToc`，
+  于是那一轮扫描等于**把 243 本一次性重建了**（250/257 有章节）
+- 剩 7 本报"目录列表为空"（章标格式在现有规则覆盖外，如 `#第一章·…`、`第一章␣␣…`、行首无章标）：
+  改为**规则无匹配时退化为「无目录分章」**（`TextFile.getChapterList`：清 `book.tocUrl` → `analyze()` 按
+  `maxLengthWithNoToc` 切块），7 本全部可读（111/68/12/71/20/56/33 章）
+- **推到 GitHub 踩的坑**：
+  1. WSL git 没有凭据 → 可借 Windows 侧 GCM：
+     `git -c credential.helper='/mnt/d/Git/mingw64/bin/git-credential-manager.exe' push ...`
+     （凭据在 Windows 凭据管理器里的 `git:https://github.com`，不用把 token 贴出来）
+  2. **本仓库是浅克隆**（`.git/shallow`）→ 从浅克隆推完整历史到别的远端会报
+     `remote: fatal: did not receive expected object … / index-pack failed`（`--no-thin` 也没用）
+     → 先 `git fetch --unshallow origin`（上游 79.5 MB）再推
+  3. 用户仓库 main 原是一个孤立"快照"提交，与本地历史无共同祖先 → 用 `--force-with-lease` 覆盖
