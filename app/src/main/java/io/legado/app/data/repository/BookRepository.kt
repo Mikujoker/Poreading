@@ -1,0 +1,214 @@
+package io.legado.app.data.repository
+
+import io.legado.app.data.AppDatabase
+import io.legado.app.data.dao.BookChapterDao
+import io.legado.app.data.dao.BookDao
+import io.legado.app.data.dao.GroupBookCount
+import io.legado.app.data.entities.Book
+import io.legado.app.data.entities.BookChapter
+import io.legado.app.data.entities.ShelfBookSummary
+import io.legado.app.ui.main.bookshelf.BookShelfItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+
+class BookRepository(
+    private val bookDao: BookDao,
+    private val bookChapterDao: BookChapterDao,
+    private val appDb: AppDatabase,
+) {
+
+    private companion object {
+        const val SQLITE_MAX_BIND_PARAMETERS = 900
+    }
+
+    fun flowBook(bookUrl: String): Flow<Book?> {
+        return bookDao.flowGetBook(bookUrl)
+    }
+
+    fun flowChapters(bookUrl: String): Flow<List<BookChapter>> {
+        return bookChapterDao.getChapterListFlow(bookUrl)
+    }
+
+    fun getAllBooks(): Flow<List<Book>> {
+        return bookDao.flowAll()
+    }
+
+    suspend fun getBookCoverByNameAndAuthor(bookName: String, bookAuthor: String): String? {
+        return withContext(Dispatchers.IO) {
+            bookDao.getBook(bookName, bookAuthor)?.getDisplayCover()
+        }
+    }
+
+    suspend fun getChapterTitle(bookName: String, bookAuthor: String, chapterIndex: Int): String? {
+        return withContext(Dispatchers.IO) {
+            val book = bookDao.getBook(bookName, bookAuthor)
+            val bookUrl = book?.bookUrl
+            if (bookUrl.isNullOrEmpty()) return@withContext null
+
+            bookChapterDao.getChapterTitleByUrlAndIndex(bookUrl, chapterIndex)
+        }
+    }
+
+    suspend fun getBook(bookUrl: String): Book? {
+        return withContext(Dispatchers.IO) {
+            bookDao.getBook(bookUrl)
+        }
+    }
+
+    suspend fun getBook(name: String, author: String): Book? {
+        return withContext(Dispatchers.IO) {
+            bookDao.getBook(name, author)
+        }
+    }
+
+    /**
+     * 批量取书，用于把跨分组选中的 bookUrl 解析成实体。
+     * 分批是因为 `IN (:bookUrls)` 会展开成绑定参数，单次上限由 SQLite 决定（默认 999）。
+     */
+    suspend fun getBooksByUrls(bookUrls: Set<String>): List<Book> = withContext(Dispatchers.IO) {
+        if (bookUrls.isEmpty()) return@withContext emptyList()
+        if (bookUrls.size <= SQLITE_MAX_BIND_PARAMETERS) {
+            return@withContext bookDao.getBooksByUrls(bookUrls)
+        }
+        bookUrls.chunked(SQLITE_MAX_BIND_PARAMETERS).flatMap { chunk ->
+            bookDao.getBooksByUrls(chunk.toSet())
+        }
+    }
+
+    suspend fun getShelfBookSummaries(): List<ShelfBookSummary> {
+        return withContext(Dispatchers.IO) {
+            bookDao.getShelfBookSummaries()
+        }
+    }
+
+    fun flowBookShelfByGroup(groupId: Long): Flow<List<BookShelfItem>> {
+        return bookDao.flowBookShelfByGroup(groupId)
+    }
+
+    fun flowSystemGroupCounts(): Flow<List<GroupBookCount>> {
+        return bookDao.flowSystemGroupCounts()
+    }
+
+    fun flowAllBookShelfCount(): Flow<Int> {
+        return bookDao.flowAllBookShelfCount()
+    }
+
+    fun flowUserGroupBookCount(groupId: Long): Flow<Int> {
+        return bookDao.flowUserGroupBookCount(groupId)
+    }
+
+    fun flowGroupPreview(groupId: Long): Flow<List<BookShelfItem>> {
+        return bookDao.flowGroupPreview(groupId)
+    }
+
+    suspend fun getChapter(bookUrl: String, index: Int): BookChapter? {
+        return withContext(Dispatchers.IO) {
+            bookChapterDao.getChapter(bookUrl, index)
+        }
+    }
+
+    suspend fun getChapterCount(bookUrl: String): Int {
+        return withContext(Dispatchers.IO) {
+            bookChapterDao.getChapterCount(bookUrl)
+        }
+    }
+
+    suspend fun getVolumeCount(bookUrl: String): Int {
+        return withContext(Dispatchers.IO) {
+            bookChapterDao.getVolumeCount(bookUrl)
+        }
+    }
+
+    suspend fun getChapters(bookUrl: String): List<BookChapter> {
+        return withContext(Dispatchers.IO) {
+            bookChapterDao.getChapterList(bookUrl)
+        }
+    }
+
+    suspend fun getChapters(bookUrl: String, start: Int, end: Int): List<BookChapter> {
+        return withContext(Dispatchers.IO) {
+            bookChapterDao.getChapterList(bookUrl, start, end)
+        }
+    }
+
+    suspend fun update(vararg book: Book) {
+        withContext(Dispatchers.IO) {
+            bookDao.update(*book)
+        }
+    }
+
+    suspend fun getMinOrder(): Int {
+        return withContext(Dispatchers.IO) {
+            bookDao.minOrder
+        }
+    }
+
+    suspend fun insert(book: Book) {
+        withContext(Dispatchers.IO) {
+            bookDao.insert(book)
+        }
+    }
+
+    suspend fun insertChapters(vararg chapters: BookChapter) {
+        withContext(Dispatchers.IO) {
+            bookChapterDao.insert(*chapters)
+        }
+    }
+
+    suspend fun getHasUpdateBooks(): List<Book> {
+        return withContext(Dispatchers.IO) {
+            bookDao.hasUpdateBooks
+        }
+    }
+
+    suspend fun getAll(): List<Book> {
+        return withContext(Dispatchers.IO) {
+            bookDao.getAll()
+        }
+    }
+
+    suspend fun getLastReadBook(): Book? {
+        return withContext(Dispatchers.IO) {
+            bookDao.lastReadBook
+        }
+    }
+
+    suspend fun replace(oldBook: Book, newBook: Book) {
+        withContext(Dispatchers.IO) {
+            bookDao.replace(oldBook, newBook)
+        }
+    }
+
+    suspend fun delete(vararg book: Book) {
+        withContext(Dispatchers.IO) {
+            bookDao.delete(*book)
+        }
+    }
+
+    suspend fun deleteChaptersByBook(bookUrl: String) {
+        withContext(Dispatchers.IO) {
+            bookChapterDao.delByBook(bookUrl)
+        }
+    }
+
+    /**
+     * 全部本地书。给「对所有本地 TXT 重新分章」这类一次性维护动作用：本地书的章节表是
+     * 懒生成 + 落库的，换了目录规则不会自动重算，必须整本重跑一遍分章。
+     */
+    suspend fun getAllLocalBooks(): List<Book> = withContext(Dispatchers.IO) {
+        bookDao.flowLocal().first()
+    }
+
+    suspend fun replaceChaptersAndUpdateBook(book: Book, chapters: List<BookChapter>) {
+        withContext(Dispatchers.IO) {
+            appDb.runInTransaction {
+                bookChapterDao.delByBook(book.bookUrl)
+                bookChapterDao.insert(*chapters.toTypedArray())
+                bookDao.update(book)
+            }
+        }
+    }
+
+}

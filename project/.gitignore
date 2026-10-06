@@ -1,0 +1,6 @@
+# 构建产物
+/app/build/
+/build/
+/modules/*/build/
+/baselineProfile/build/
+.gradle/

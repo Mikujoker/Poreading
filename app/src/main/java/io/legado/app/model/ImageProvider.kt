@@ -1,0 +1,258 @@
+package io.legado.app.model
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Size
+import androidx.collection.LruCache
+import io.legado.app.R
+import io.legado.app.constant.AppLog.putDebug
+import io.legado.app.data.entities.Book
+import io.legado.app.data.entities.BookSource
+import io.legado.app.domain.gateway.DownloadCacheSettingsGateway
+import io.legado.app.domain.gateway.OtherSettingsGateway
+import io.legado.app.exception.NoStackTraceException
+import io.legado.app.help.book.BookHelp
+import io.legado.app.help.book.isEpub
+import io.legado.app.help.book.isMobi
+import io.legado.app.help.book.isPdf
+import io.legado.app.model.localBook.EpubFile
+import io.legado.app.model.localBook.MobiFile
+import io.legado.app.model.localBook.PdfFile
+import io.legado.app.utils.BitmapUtils
+import io.legado.app.utils.FileUtils
+import io.legado.app.utils.SvgUtils
+import io.legado.app.utils.toastOnUi
+import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.withContext
+import org.koin.core.context.GlobalContext
+import splitties.init.appCtx
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.min
+
+object ImageProvider {
+
+    private val cacheSettingsGateway get() = GlobalContext.get().get<DownloadCacheSettingsGateway>()
+    private val otherSettingsGateway get() = GlobalContext.get().get<OtherSettingsGateway>()
+
+    private val errorBitmap: Bitmap by lazy {
+        BitmapFactory.decodeResource(appCtx.resources, R.drawable.image_loading_error)
+    }
+
+    /** Lets renderers keep the last good frame when a refreshed file cannot be decoded. */
+    fun isErrorBitmap(bitmap: Bitmap): Boolean = bitmap === errorBitmap
+
+    /**
+     * 缓存bitmap LruCache实现
+     * filePath bitmap
+     */
+    private const val M = 1024 * 1024
+    val cacheSize: Int
+        get() {
+            return cacheSettingsGateway.currentSettings.bitmapCacheSize.takeIf { it in 1..<2048 }
+                ?.times(M)
+                ?: (50 * M)
+        }
+
+    val bitmapLruCache = BitmapLruCache()
+
+    class BitmapLruCache : LruCache<String, Bitmap>(cacheSize) {
+
+        private var removeCount = 0
+
+        val count get() = putCount() + createCount() - evictionCount() - removeCount
+
+        override fun sizeOf(key: String, value: Bitmap): Int {
+            return value.byteCount
+        }
+
+        override fun entryRemoved(
+            evicted: Boolean,
+            key: String,
+            oldValue: Bitmap,
+            newValue: Bitmap?
+        ) {
+            if (!evicted) {
+                synchronized(this) {
+                    removeCount++
+                }
+            }
+            // 移除 oldValue.recycle()。
+            // 在 Android 8.0+ 像素内存由 GC 自动管理，手动回收容易导致 Canvas 绘制时崩溃。
+            // 特别是在阅读页返回书架时，DisplayList 可能仍持有 Bitmap 引用。
+        }
+
+    }
+
+    fun put(key: String, bitmap: Bitmap) {
+        ensureLruCacheSize(bitmap)
+        bitmapLruCache.put(key, bitmap)
+    }
+
+    fun get(key: String): Bitmap? {
+        val bitmap = bitmapLruCache[key] ?: return null
+        if (bitmap.isRecycled) {
+            bitmapLruCache.remove(key)
+            return null
+        }
+        return bitmap
+    }
+
+    fun remove(key: String): Bitmap? {
+        return bitmapLruCache.remove(key)
+    }
+
+    private fun getNotRecycled(key: String): Bitmap? {
+        val bitmap = bitmapLruCache[key] ?: return null
+        if (bitmap.isRecycled) {
+            bitmapLruCache.remove(key)
+            return null
+        }
+        return bitmap
+    }
+
+    /**
+     * 解码失败的占位策略：TTL 内不重试（防每次绘制都重试），TTL 过后允许重试，
+     * 但同一文件最多重试 [ERROR_MAX_RETRY] 次（防坏图反复下载）。
+     * 这样一次瞬时失败（例如缓存文件被写坏）不会让图片永久变灰。
+     */
+    private class DecodeFailure(var at: Long, var attempts: Int)
+
+    private val decodeFailures = java.util.concurrent.ConcurrentHashMap<String, DecodeFailure>()
+
+    private fun canRetryAfterDecodeError(key: String): Boolean {
+        val failure = decodeFailures[key] ?: return true
+        if (System.currentTimeMillis() - failure.at < ERROR_RETRY_TTL_MS) return false
+        return failure.attempts < ERROR_MAX_RETRY
+    }
+
+    private fun markDecodeError(key: String) {
+        val failure = decodeFailures[key]
+        decodeFailures[key] = DecodeFailure(System.currentTimeMillis(), (failure?.attempts ?: 0) + 1)
+    }
+
+    private fun clearDecodeError(key: String) {
+        decodeFailures.remove(key)
+    }
+
+    private const val ERROR_RETRY_TTL_MS = 4_000L
+    private const val ERROR_MAX_RETRY = 2
+
+    private fun ensureLruCacheSize(bitmap: Bitmap) {
+        val lruMaxSize = bitmapLruCache.maxSize()
+        val lruSize = bitmapLruCache.size()
+        val byteCount = bitmap.byteCount
+        val size = if (byteCount > lruMaxSize) {
+            min(256 * M, (byteCount * 1.3).toInt())
+        } else if (lruSize + byteCount > lruMaxSize && bitmapLruCache.count < 5) {
+            min(256 * M, (lruSize + byteCount * 1.3).toInt())
+        } else {
+            lruMaxSize
+        }
+        if (size > lruMaxSize) {
+            bitmapLruCache.resize(size)
+        }
+    }
+
+    /**
+     *缓存网络图片和epub图片
+     */
+    suspend fun cacheImage(
+        book: Book,
+        src: String,
+        bookSource: BookSource?
+    ): File {
+        return withContext(IO) {
+            val vFile = BookHelp.getImage(book, src)
+            if (!BookHelp.isImageExist(book, src)) {
+                val inputStream = when {
+                    book.isEpub -> EpubFile.getImage(book, src)
+                    book.isPdf -> PdfFile.getImage(book, src)
+                    book.isMobi -> MobiFile.getImage(book, src)
+                    else -> {
+                        BookHelp.saveImage(bookSource, book, src)
+                        null
+                    }
+                }
+                inputStream?.use { input ->
+                    val newFile = FileUtils.createFileIfNotExist(vFile.absolutePath)
+                    FileOutputStream(newFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+            return@withContext vFile
+        }
+    }
+
+    /**
+     *获取图片宽度高度信息
+     */
+    suspend fun getImageSize(
+        book: Book,
+        src: String,
+        bookSource: BookSource?
+    ): Size {
+        val file = cacheImage(book, src, bookSource)
+        val op = BitmapFactory.Options()
+        // inJustDecodeBounds如果设置为true,仅仅返回图片实际的宽和高,宽和高是赋值给opts.outWidth,opts.outHeight;
+        op.inJustDecodeBounds = true
+        BitmapFactory.decodeFile(file.absolutePath, op)
+        if (op.outWidth < 1 && op.outHeight < 1) {
+            //svg size
+            val size = SvgUtils.getSize(file.absolutePath)
+            if (size != null) return size
+            putDebug("ImageProvider: $src Unsupported image type")
+            //file.delete() 重复下载
+            return Size(errorBitmap.width, errorBitmap.height)
+        }
+        return Size(op.outWidth, op.outHeight)
+    }
+
+    /**
+     *获取bitmap 使用LruCache缓存
+     */
+    fun getImage(
+        book: Book,
+        src: String,
+        width: Int,
+        height: Int? = null
+    ): Bitmap {
+        //src为空白时 可能被净化替换掉了 或者规则失效
+        if (book.getUseReplaceRule(otherSettingsGateway.currentSettings.replaceEnableDefault) && src.isBlank()) {
+            book.setUseReplaceRule(false)
+            appCtx.toastOnUi(R.string.error_image_url_empty)
+        }
+        val vFile = BookHelp.getImage(book, src)
+        if (!vFile.exists()) return errorBitmap
+        //epub文件提供图片链接是相对链接，同时阅读多个epub文件，缓存命中错误
+        //bitmapLruCache的key同一改成缓存文件的路径
+        val cacheBitmap = getNotRecycled(vFile.absolutePath)
+        if (cacheBitmap != null) {
+            if (!isErrorBitmap(cacheBitmap)) return cacheBitmap
+            // 缓存的是错误占位图：TTL 内先沿用，TTL 过后允许重试，并把疑似半截的缓存文件删掉让下次重新下载
+            if (!canRetryAfterDecodeError(vFile.absolutePath)) return cacheBitmap
+            remove(vFile.absolutePath)
+            runCatching { if (vFile.exists()) vFile.delete() }
+        }
+        return kotlin.runCatching {
+            val bitmap = BitmapUtils.decodeBitmap(vFile.absolutePath, width, height)
+                ?: SvgUtils.createBitmap(vFile.absolutePath, width, height)
+                ?: throw NoStackTraceException(appCtx.getString(R.string.error_decode_bitmap))
+            put(vFile.absolutePath, bitmap)
+            clearDecodeError(vFile.absolutePath)
+            bitmap
+        }.onFailure {
+            // 短期占位（防重复获取）——不再永久缓存失败：一次瞬时解码失败不该让图片永久变灰
+            markDecodeError(vFile.absolutePath)
+            put(vFile.absolutePath, errorBitmap)
+        }.getOrDefault(errorBitmap)
+    }
+
+    suspend fun clear() {
+        withContext(IO) {
+            bitmapLruCache.evictAll()
+        }
+    }
+
+}

@@ -1,0 +1,2137 @@
+package io.legado.app.ui.book.info
+
+import android.app.Activity.RESULT_OK
+import android.app.Application
+import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
+import androidx.lifecycle.viewModelScope
+import coil3.ImageLoader
+import coil3.request.SuccessResult
+import coil3.toBitmap
+import io.legado.app.R
+import io.legado.app.base.BaseViewModel
+import io.legado.app.constant.AppLog
+import io.legado.app.constant.AppPattern
+import io.legado.app.constant.BookType
+import io.legado.app.constant.EventBus
+import io.legado.app.data.entities.Book
+import io.legado.app.data.entities.BookChapter
+import io.legado.app.data.entities.BookSource
+import io.legado.app.data.entities.SearchBook
+import io.legado.app.data.entities.readRecord.ReadRecordTimelineDay
+import io.legado.app.data.repository.BookGroupRepository
+import io.legado.app.data.repository.BookRepository
+import io.legado.app.data.repository.BookSourceRepository
+import io.legado.app.data.repository.HighlightTagRuleRepository
+import io.legado.app.data.repository.ReadRecordRepository
+import io.legado.app.data.repository.RemoteBookRepository
+import io.legado.app.data.repository.SearchRepository
+import io.legado.app.domain.gateway.BookKnowledgeGateway
+import io.legado.app.domain.gateway.CoverSettingsGateway
+import io.legado.app.domain.gateway.OtherSettingsGateway
+import io.legado.app.domain.gateway.PrivateAccessGateway
+import io.legado.app.domain.gateway.PrivateContentGateway
+import io.legado.app.domain.gateway.ThemeSettingsGateway
+import io.legado.app.domain.model.BookMatchKey
+import io.legado.app.domain.model.BookshelfConflict
+import io.legado.app.domain.model.ConflictBookSummary
+import io.legado.app.domain.model.PrivateAccessState
+import io.legado.app.domain.model.PrivateUnlockTarget
+import io.legado.app.domain.model.settings.CoverSettings
+import io.legado.app.domain.model.settings.OtherSettings
+import io.legado.app.domain.model.settings.PrivateAccessSettings
+import io.legado.app.domain.model.settings.ThemeSettings
+import io.legado.app.domain.usecase.BookTocUnavailableException
+import io.legado.app.domain.usecase.ChangeBookSourceUseCase
+import io.legado.app.domain.usecase.ChangeSourceMigrationOptions
+import io.legado.app.domain.usecase.ClearBookCacheUseCase
+import io.legado.app.domain.usecase.FindBookshelfConflictUseCase
+import io.legado.app.domain.usecase.ResolveBookshelfConflictUseCase
+import io.legado.app.exception.NoBooksDirException
+import io.legado.app.exception.NoStackTraceException
+import io.legado.app.help.book.BookHelp
+import io.legado.app.help.book.addType
+import io.legado.app.help.book.getDisplayTagList
+import io.legado.app.help.book.getExportFileName
+import io.legado.app.help.book.isLocal
+import io.legado.app.help.book.isNotShelf
+import io.legado.app.help.book.isSameNameAuthor
+import io.legado.app.help.book.isWebFile
+import io.legado.app.help.book.parseHighlightedTags
+import io.legado.app.help.book.removeType
+import io.legado.app.help.book.upKind
+import io.legado.app.help.book.updateTo
+import io.legado.app.help.config.LocalConfig
+import io.legado.app.help.coroutine.Coroutine
+import io.legado.app.lib.webdav.ObjectNotFoundException
+import io.legado.app.model.AudioPlay
+import io.legado.app.model.BookCover
+import io.legado.app.model.ReadBook
+import io.legado.app.model.SourceCallBack
+import io.legado.app.model.analyzeRule.AnalyzeUrl
+import io.legado.app.model.localBook.LocalBook
+import io.legado.app.model.webBook.WebBook
+import io.legado.app.ui.main.MainIntent
+import io.legado.app.ui.widget.components.image.cover.buildCoverImageRequest
+import io.legado.app.utils.ArchiveUtils
+import io.legado.app.utils.GSON
+import io.legado.app.utils.ImageSaveUtils
+import io.legado.app.utils.UrlUtil
+import io.legado.app.utils.fromJsonArray
+import io.legado.app.utils.postEvent
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+
+class BookInfoViewModel(
+    application: Application,
+    private val remoteBookRepository: RemoteBookRepository,
+    private val readRecordRepository: ReadRecordRepository,
+    private val changeBookSourceUseCase: ChangeBookSourceUseCase,
+    private val clearBookCacheUseCase: ClearBookCacheUseCase,
+    private val bookGroupRepository: BookGroupRepository,
+    private val bookRepository: BookRepository,
+    private val findBookshelfConflictUseCase: FindBookshelfConflictUseCase,
+    private val resolveBookshelfConflictUseCase: ResolveBookshelfConflictUseCase,
+    private val bookSourceRepository: BookSourceRepository,
+    private val searchRepository: SearchRepository,
+    private val highlightTagRuleRepository: HighlightTagRuleRepository,
+    private val imageLoader: ImageLoader,
+    private val bookKnowledgeGateway: BookKnowledgeGateway,
+    private val themeSettingsGateway: ThemeSettingsGateway,
+    private val coverSettingsGateway: CoverSettingsGateway,
+    private val otherSettingsGateway: OtherSettingsGateway,
+    private val privateAccessGateway: PrivateAccessGateway,
+    private val privateContentGateway: PrivateContentGateway,
+) : BaseViewModel(application) {
+
+    val allGroups = bookGroupRepository.flowSelect().map { it.toImmutableList() }
+
+    // 仅保存“每本书/屏幕”状态；外观与其他设置不在此存储，避免整体重置时被抹掉。
+    private val _screenState = MutableStateFlow(BookInfoUiState())
+
+    /** 当前书籍是否私密（单本标记 ∪ 所属私密分组）；菜单里"标记/取消私密"读它 */
+    private val bookPrivateFlow = MutableStateFlow(false)
+
+    /**
+     * 进入本页时这本书是否需要验证。
+     *
+     * 与 [bookPrivateFlow] 分开：用户在页面内刚把这本书标成私密时，页面不应该立刻变成
+     * 脱敏态——是否要验证只在进入本页时定一次。
+     */
+    private val privateLockedByEntryFlow = MutableStateFlow(false)
+
+    private val privateAccessState: StateFlow<PrivateAccessState> =
+        privateAccessGateway.state
+            .stateIn(viewModelScope, SharingStarted.Eagerly, PrivateAccessState())
+
+    private val privateAccessSettings: StateFlow<PrivateAccessSettings> =
+        privateAccessGateway.settings
+            .stateIn(viewModelScope, SharingStarted.Eagerly, PrivateAccessSettings())
+
+    // 设置类字段始终从各自 gateway（唯一 SSOT）派生叠加，重置屏幕状态无法影响它们。
+    val uiState: StateFlow<BookInfoUiState> = combine(
+        _screenState,
+        themeSettingsGateway.settings,
+        coverSettingsGateway.settings,
+        otherSettingsGateway.settings,
+    ) { screen, theme, cover, other ->
+        screen.withSettings(theme, cover, other)
+    }.combine(bookPrivateFlow) { screen, bookPrivate ->
+        screen.copy(bookPrivate = bookPrivate)
+    }.combine(privateLockedByEntryFlow) { screen, lockedByEntry ->
+        screen.copy(privateLockedByEntry = lockedByEntry)
+    }.combine(privateAccessState) { screen, privateAccess ->
+        screen.copy(privateAccess = privateAccess)
+    }.combine(privateAccessSettings) { screen, privateSettings ->
+        val group = screen.book?.group ?: 0L
+        screen.copy(
+            privateLocked = privateSettings.verifyOnOpenBook &&
+                    screen.privateLockedByEntry &&
+                    !screen.privateAccess.isTargetGranted(screen.book?.bookUrl, group)
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = BookInfoUiState().withSettings(
+            themeSettingsGateway.currentSettings,
+            coverSettingsGateway.currentSettings,
+            otherSettingsGateway.currentSettings,
+        ),
+    )
+
+    private val _effects = MutableSharedFlow<BookInfoEffect>(extraBufferCapacity = 8)
+    val effects = _effects.asSharedFlow()
+
+    init {
+        collectEventBus()
+    }
+
+    private fun collectEventBus() {
+        viewModelScope.launch {
+            eventFlow<Boolean>(EventBus.REFRESH_BOOK_INFO).collect {
+                currentBook?.let { book ->
+                    refreshBook(book)
+                }
+            }
+        }
+        viewModelScope.launch {
+            eventFlow<Boolean>(EventBus.REFRESH_BOOK_TOC).collect {
+                currentBook?.let { book ->
+                    loadChapter(book)
+                }
+            }
+        }
+    }
+
+    private inline fun <reified T> eventFlow(tag: String): Flow<T> = callbackFlow {
+        val obs = androidx.lifecycle.Observer<T> { trySend(it) }
+        com.jeremyliao.liveeventbus.LiveEventBus.get<T>(tag).observeForever(obs)
+        awaitClose {
+            com.jeremyliao.liveeventbus.LiveEventBus.get<T>(tag).removeObserver(obs)
+        }
+    }
+
+    private var currentBook: Book? = null
+        set(value) {
+            field = value
+            observeReadRecordIfNeeded(value)
+        }
+
+    override fun onCleared() {
+        // "每次验证"频率下离开详情页即撤销授权，下次进来要重新验证
+        currentBook?.bookUrl?.let {
+            privateAccessGateway.revoke(PrivateUnlockTarget.Book(it))
+        }
+        super.onCleared()
+    }
+
+    /** 详情页溢出菜单里的"标记/取消私密" */
+    private fun toggleBookPrivate() {
+        val bookUrl = currentBook?.bookUrl ?: return
+        val target = !bookPrivateFlow.value
+        execute {
+            privateContentGateway.setBooksPrivate(setOf(bookUrl), target)
+        }.onSuccess {
+            bookPrivateFlow.value = target
+            showMessage(
+                context.getString(
+                    if (target) R.string.private_mark_book else R.string.private_unmark_book
+                )
+            )
+        }.onError {
+            showMessage(context.getString(R.string.save_failed))
+        }
+    }
+
+    /** 与书架同一套降级顺序：生物快捷 → 应用内密码 → 引导设密码 */
+    private fun requestPrivateUnlock() {
+        val access = privateAccessState.value
+        // 已经获准查看（进程解锁或本目标已授权）就不必再打扰
+        if (!uiState.value.privateLocked) return
+        if (!access.hasPassword) {
+            emitEffect(BookInfoEffect.NavigateToLocalPasswordSettings)
+            return
+        }
+        if (access.canUseBiometricShortcut) {
+            emitEffect(BookInfoEffect.RequestBiometricUnlock)
+        } else {
+            _screenState.update { it.copy(showPrivatePasswordDialog = true) }
+        }
+    }
+
+    private fun submitPrivatePassword(password: String) {
+        if (password.isEmpty()) return
+        val target = currentBook?.bookUrl?.let { PrivateUnlockTarget.Book(it) }
+        viewModelScope.launch {
+            if (privateAccessGateway.verifyPassword(password, target)) {
+                _screenState.update { it.copy(showPrivatePasswordDialog = false) }
+            } else {
+                showMessage(context.getString(R.string.private_unlock_password_error))
+            }
+        }
+    }
+    private var currentChapterList: List<BookChapter> = emptyList()
+    private var tocLoadFailed = false
+    private var currentWebFiles: List<BookInfoWebFile> = emptyList()
+    private var currentRelatedBooks: List<RelatedBooksUi> = emptyList()
+    private var currentCharacters: List<BookInfoCharacterUi> = emptyList()
+    private var currentHighlightedTags: List<HighlightedTag> = emptyList()
+    private var currentKindLabels: List<String> = emptyList()
+    private var currentGroupNames: String? = null
+    private var currentHasCustomGroup = false
+    private var currentReadRecordTotalTime = 0L
+    private var currentReadRecordTimelineDays: List<ReadRecordTimelineDay> = emptyList()
+    private var observingReadRecordKey: String? = null
+    private var chapterChanged = false
+
+    /** 命中重复、等待用户在冲突 Sheet 上选择共存还是迁移的那本书。 */
+    private var pendingShelfBook: Book? = null
+
+    /**
+     * 书架里同一部作品的其他副本（宽松「疑似」口径，见 [refreshShelfDuplicates]）。
+     *
+     * 未入架时驱动书架按钮的冲突态外观；已入架时给「书架操作」Sheet 列出来。
+     * 只影响展示，不改动任何数据。
+     */
+    private var shelfDuplicates: List<ConflictBookSummary> = emptyList()
+
+    /**
+     * 上一次统计用的归一化身份键（书名 + 作者）。
+     *
+     * upBook 与爬取后各统计一次，而候选集来自一次全表扫描；身份没变就不必重查
+     * （`canReName` 真改写了身份时键会变，仍会重算）。书架的增删由本页动作显式作废。
+     */
+    private var shelfDuplicateIdentity: Pair<String, String>? = null
+
+    var inBookshelf = false
+        private set
+    var bookSource: BookSource? = null
+        private set
+
+    private var changeSourceCoroutine: Coroutine<*>? = null
+    private var readRecordObserveJob: Job? = null
+    private var relatedBooksLoadJob: Job? = null
+    private var characterLoadJob: Job? = null
+
+    fun initData(intent: Intent) {
+        initData(
+            bookUrl = intent.getStringExtra(MainIntent.EXTRA_BOOK_URL) ?: "",
+            name = intent.getStringExtra(MainIntent.EXTRA_BOOK_NAME),
+            author = intent.getStringExtra(MainIntent.EXTRA_BOOK_AUTHOR),
+            origin = intent.getStringExtra(MainIntent.EXTRA_BOOK_ORIGIN),
+            coverPath = intent.getStringExtra(MainIntent.EXTRA_BOOK_COVER)
+        )
+    }
+
+    fun initData(
+        bookUrl: String,
+        name: String? = null,
+        author: String? = null,
+        origin: String? = null,
+        coverPath: String? = null
+    ) {
+        val current = currentBook
+        if (current != null) return
+        clearReadRecordObserve()
+        relatedBooksLoadJob?.cancel()
+        characterLoadJob?.cancel()
+        execute {
+            // 私密标记与书籍信息一次取回：先确定是否私密，再发布书籍。
+            // 分开查会先渲染真实书名/封面、再切成锁定态，既闪烁又泄漏。
+            val isPrivate = privateContentGateway.isBookPrivate(bookUrl)
+            val fallback = if (!name.isNullOrBlank() && !author.isNullOrBlank()) {
+                Book(
+                    bookUrl = bookUrl,
+                    name = name,
+                    author = author,
+                    origin = origin ?: BookType.localTag,
+                    coverUrl = coverPath
+                ).apply {
+                    addType(BookType.notShelf)
+                }
+            } else {
+                null
+            }
+            val dbBook = bookRepository.getBook(bookUrl)
+            val book = when {
+                dbBook != null -> {
+                    inBookshelf = !dbBook.isNotShelf
+                    dbBook
+                }
+
+                else -> {
+                    val searchBook = searchRepository.getSearchBook(bookUrl)?.toBook()
+                    if (searchBook != null) {
+                        inBookshelf = false
+                        searchBook
+                    } else {
+                        fallback ?: throw NoStackTraceException("未找到书籍")
+                    }
+                }
+            }
+            book to isPrivate
+        }.onSuccess { (book, isPrivate) ->
+            // 先落私密状态再发布书籍：第一帧就已经是最终形态，没有中间态
+            bookPrivateFlow.value = isPrivate
+            privateLockedByEntryFlow.value = isPrivate
+            if (isPrivate) {
+                // 私密书籍的详情页直接弹验证，不用用户再点一次；取消后停在脱敏页，
+                // 那里仍有"验证"入口可以重试。
+                // privateLocked 是组合流，等它真正算出 true 再申请——否则会被
+                // requestPrivateUnlock 的前置判断挡回去，弹不出来。first 保证只弹一次。
+                viewModelScope.launch {
+                    uiState.first { it.privateLocked }
+                    requestPrivateUnlock()
+                }
+            }
+            // 如果从数据库/搜索中拿到的书没有封面，但我们有传入的封面，则保留传入的封面
+            if (book.coverUrl.isNullOrBlank() && !coverPath.isNullOrBlank()) {
+                book.coverUrl = coverPath
+            }
+            val source = if (book.isLocal) {
+                null
+            } else {
+                bookSourceRepository.getBookSource(book.origin)
+            }
+            upBook(book, source)
+        }.onError {
+            showMessage(it.localizedMessage ?: "未找到书籍")
+            emitEffect(BookInfoEffect.Finish(afterTransition = true))
+        }
+    }
+
+    fun onIntent(intent: BookInfoIntent) {
+        when (intent) {
+            BookInfoIntent.DismissSheet -> dismissSheet()
+            is BookInfoIntent.UpdateVariable -> updateVariableDraft(intent.value)
+            BookInfoIntent.SaveVariable -> saveVariableDraft()
+            BookInfoIntent.DismissDialog -> dismissDialog()
+            is BookInfoIntent.MenuAction -> handleMenuAction(intent.action)
+            is BookInfoIntent.AuthorClick -> onAuthorClick(intent.longClick)
+            is BookInfoIntent.BookNameClick -> onBookNameClick(intent.longClick)
+            BookInfoIntent.OriginClick -> onOriginClick()
+            BookInfoIntent.DismissAppLogSheet -> {
+                _screenState.update { it.copy(showAppLogSheet = false) }
+            }
+
+            BookInfoIntent.RequestPrivateUnlock -> requestPrivateUnlock()
+            BookInfoIntent.ShowPrivatePassword -> {
+                _screenState.update { it.copy(showPrivatePasswordDialog = true) }
+            }
+
+            is BookInfoIntent.SubmitPrivatePassword -> submitPrivatePassword(intent.password)
+            BookInfoIntent.DismissPrivatePassword -> {
+                _screenState.update { it.copy(showPrivatePasswordDialog = false) }
+            }
+
+            BookInfoIntent.ReadClick -> onReadClick()
+            BookInfoIntent.ShelfClick -> onShelfClick()
+            BookInfoIntent.TocClick -> onTocClick()
+            BookInfoIntent.CoverClick -> setSheet(BookInfoSheet.CoverPicker)
+            BookInfoIntent.CoverLongClick -> currentBook?.getDisplayCover()?.takeIf { it.isNotBlank() }
+                ?.let { showDialog(BookInfoDialog.PhotoPreview(it)) }
+
+            BookInfoIntent.GroupClick -> setSheet(BookInfoSheet.GroupPicker)
+            BookInfoIntent.ChangeSourceClick -> currentBook?.uiCopy()
+                ?.apply {
+                    // 详情页的 currentBook 多来自书源解析结果，并不带 notShelf 标记，而它才是
+                    // 「未上架」的唯一事实来源。这里按 inBookshelf 如实补位，换源 Sheet 才能
+                    // 知道不需要询问「新增还是替换」。
+                    if (!inBookshelf) addType(BookType.notShelf)
+                }
+                ?.let { setSheet(BookInfoSheet.SourcePicker(it)) }
+            BookInfoIntent.ReadRecordClick -> setSheet(BookInfoSheet.ReadRecord)
+            BookInfoIntent.RemarkClick -> showDialog(BookInfoDialog.EditRemark(currentBook?.remark))
+            is BookInfoIntent.SaveCover -> {
+                saveCoverToGallery(intent.path)
+            }
+            is BookInfoIntent.UpdateRemark -> {
+                dismissDialog()
+                saveRemark(intent.remark)
+            }
+
+            is BookInfoIntent.SelectGroup -> {
+                dismissSheet()
+                updateGroup(intent.groupId)
+            }
+
+            is BookInfoIntent.SelectCover -> {
+                dismissSheet()
+                updateCover(intent.coverUrl)
+            }
+
+            is BookInfoIntent.ReplaceWithSource -> {
+                dismissSheet()
+                changeTo(intent.source, intent.book, intent.toc, intent.options)
+            }
+
+            is BookInfoIntent.AddSourceAsNewBook -> {
+                addToBookshelf(intent.book, intent.toc) {
+                    showMessage("已添加到书架")
+                }
+            }
+
+            BookInfoIntent.DismissShelfConflict -> {
+                pendingShelfBook = null
+                _screenState.update { it.copy(shelfConflict = null) }
+            }
+
+            is BookInfoIntent.OpenShelfDuplicate -> openShelfDuplicate(intent.summary)
+
+            is BookInfoIntent.ShelfDeleteConfirm -> {
+                dismissSheet()
+                deleteBook(intent.deleteOriginal)
+            }
+
+            is BookInfoIntent.OpenShelfConflictBook -> {
+                // 先收起冲突 Sheet 再导航：详情页之间跳转会复用同一份冲突状态，
+                // 不收起来的话新页面一进来就显示 Sheet，并把第一次返回键吃掉。
+                pendingShelfBook = null
+                _screenState.update { it.copy(shelfConflict = null) }
+                emitEffect(
+                    BookInfoEffect.NavigateToBookInfo(
+                        name = intent.summary.name,
+                        author = intent.summary.author,
+                        bookUrl = intent.summary.bookUrl,
+                        origin = intent.summary.origin,
+                        coverPath = intent.summary.displayCover,
+                    )
+                )
+            }
+
+            is BookInfoIntent.CoexistWithShelfConflict -> resolveShelfConflict(
+                existingBookUrl = intent.existingBookUrl,
+                options = intent.options,
+                coexist = true,
+            )
+
+            is BookInfoIntent.MigrateShelfConflict -> resolveShelfConflict(
+                existingBookUrl = intent.existingBookUrl,
+                options = intent.options,
+                coexist = false,
+            )
+
+            is BookInfoIntent.ReplaceConflictingBook -> {
+                dismissSheet()
+                changeTo(
+                    source = intent.source,
+                    book = intent.book,
+                    toc = intent.toc,
+                    options = intent.options,
+                    replacedBook = intent.oldBook,
+                )
+            }
+
+            is BookInfoIntent.SelectWebFile -> handleWebFileSelection(
+                intent.webFile,
+                intent.openAfterImport
+            )
+
+            is BookInfoIntent.OpenUnsupportedWebFile -> {
+                dismissDialog()
+                importOrDownloadWebFile<Uri>(intent.webFile) { uri ->
+                    emitEffect(BookInfoEffect.OpenFile(uri, "*/*"))
+                }
+            }
+
+            is BookInfoIntent.SelectArchiveEntry -> {
+                dismissSheet()
+                importArchiveBook(intent.archiveUri, intent.entryName) { book ->
+                    if (intent.openAfterImport) {
+                        openReader(book)
+                    }
+                }
+            }
+
+            is BookInfoIntent.RelatedBookClick -> onRelatedBookClick(intent.book)
+            is BookInfoIntent.RelatedBooksMore -> onRelatedBooksMore(intent.title, intent.url)
+            is BookInfoIntent.CharacterClick -> openCharacterDetail(intent.characterId)
+            BookInfoIntent.AddCharacterClick -> openCharacterDetail(null)
+            BookInfoIntent.CharacterNetworkClick -> openCharacterNetwork()
+            BookInfoIntent.CharacterListClick -> openCharacterList()
+            BookInfoIntent.KnowledgeListClick -> openKnowledgeList()
+            BookInfoIntent.EventListClick -> openEventList()
+            is BookInfoIntent.SetDefaultBookTreeUri -> viewModelScope.launch {
+                otherSettingsGateway.update { it.copy(defaultBookTreeUri = intent.value) }
+            }
+            is BookInfoIntent.IntroButtonClick -> runIntroJs(
+                "info button ${intent.name}",
+                intent.click
+            )
+
+            is BookInfoIntent.IntroImageClick -> runIntroJs("info image", intent.click)
+            is BookInfoIntent.IntroImageLongClick -> showDialog(
+                BookInfoDialog.PhotoPreview(intent.source)
+            )
+        }
+    }
+
+    /** 简介交互（按钮/图片）触发的书源 JS 执行，宿主通过 [BookInfoEffect.RunIntroJs] 运行。 */
+    private fun runIntroJs(name: String, click: String) {
+        val source = bookSource ?: return
+        val book = currentBook?.uiCopy() ?: return
+        emitEffect(BookInfoEffect.RunIntroJs(name, click, source, book))
+    }
+
+    fun openEdit() {
+        currentBook?.let {
+            emitEffect(BookInfoEffect.OpenBookInfoEdit(it.bookUrl))
+        }
+    }
+
+    fun showAppLog() {
+        _screenState.update { it.copy(showAppLogSheet = true) }
+    }
+
+    fun refreshCurrentBook() {
+        currentBook?.let {
+            refreshBook(it)
+        }
+    }
+
+    fun onSourceEdited() {
+        currentBook?.let { book ->
+            bookSource = bookSourceRepository.getBookSourceSync(book.origin)
+            syncUiState()
+            refreshBook(book)
+        }
+    }
+
+    fun onInfoEdited(newBookUrl: String? = null) {
+        (newBookUrl ?: currentBook?.bookUrl)?.let { bookUrl ->
+            execute {
+                val book = bookRepository.getBook(bookUrl) ?: return@execute null
+                val source = if (book.isLocal) {
+                    null
+                } else {
+                    bookSourceRepository.getBookSource(book.origin)
+                }
+                book to source
+            }.onSuccess {
+                it?.let { (book, source) -> upBook(book, source) }
+            }
+        }
+    }
+
+    fun onTocResult(result: Triple<Int, Int, Boolean>?) {
+        if (result == null) {
+            if (!inBookshelf) {
+                delBook()
+            }
+            return
+        }
+        chapterChanged = result.third
+        val book = currentBook ?: return
+        execute {
+            book.durChapterIndex = result.first
+            book.durChapterPos = result.second
+            bookRepository.update(book)
+            book
+        }.onSuccess {
+            currentBook = it
+            syncUiState(isTocLoading = false)
+            openReader(it)
+        }
+    }
+
+    fun refreshShelfState() {
+        val bookUrl = currentBook?.bookUrl ?: return
+        execute {
+            bookRepository.getBook(bookUrl)
+        }.onSuccess { dbBook ->
+            val nextInBookshelf = dbBook != null && !dbBook.isNotShelf
+            if (nextInBookshelf) {
+                currentBook = dbBook
+            }
+            if (inBookshelf != nextInBookshelf || nextInBookshelf) {
+                inBookshelf = nextInBookshelf
+                syncUiState()
+            }
+            loadBookCharacters(bookUrl)
+            loadBookKnowledge(bookUrl)
+            loadBookEvents(bookUrl)
+        }
+    }
+
+    fun toggleCanUpdate() {
+        currentBook?.let { book ->
+            book.canUpdate = !book.canUpdate
+            if (inBookshelf) {
+                if (!book.canUpdate) {
+                    book.removeType(BookType.updateError)
+                }
+                saveBook(book)
+            }
+            syncUiState()
+        }
+    }
+
+    fun toggleSplitLongChapter() {
+        currentBook?.takeIf { it.isLocal && it.type and BookType.text > 0 }?.let { book ->
+            book.setSplitLongChapter(!book.getSplitLongChapter())
+            syncUiState(isTocLoading = true)
+            loadBookInfo(book, canReName = false)
+            if (!book.getSplitLongChapter()) {
+                showMessage(R.string.need_more_time_load_content)
+            }
+        }
+    }
+
+    fun toggleDeleteAlert() {
+        LocalConfig.bookInfoDeleteAlert = !LocalConfig.bookInfoDeleteAlert
+        syncUiState()
+    }
+
+    fun requestSourceVariableSheet() {
+        execute {
+            val source = bookSource ?: throw NoStackTraceException("书源不存在")
+            val comment = source.getDisplayVariableComment("源变量可在js中通过source.getVariable()获取")
+            val variable = source.getVariable()
+            BookInfoSheet.Variable(
+                io.legado.app.ui.widget.components.variable.VariableEditorUiState(
+                title = context.getString(R.string.set_source_variable),
+                key = source.getKey(),
+                    value = variable.orEmpty(),
+                comment = comment,
+                )
+            )
+        }.onSuccess {
+            setSheet(it)
+        }.onError {
+            showMessage(it.localizedMessage ?: "书源不存在")
+        }
+    }
+
+    fun requestBookVariableSheet() {
+        execute {
+            val source = bookSource ?: throw NoStackTraceException("书源不存在")
+            val book = currentBook ?: throw NoStackTraceException("book is null")
+            val variable = book.getCustomVariable()
+            val comment = source.getDisplayVariableComment(
+                "书籍变量可在js中通过book.getVariable(\"custom\")获取"
+            )
+            BookInfoSheet.Variable(
+                io.legado.app.ui.widget.components.variable.VariableEditorUiState(
+                title = context.getString(R.string.set_book_variable),
+                key = book.bookUrl,
+                    value = variable.orEmpty(),
+                comment = comment,
+                )
+            )
+        }.onSuccess {
+            setSheet(it)
+        }.onError {
+            showMessage(it.localizedMessage ?: "书源不存在")
+        }
+    }
+
+    fun setVariable(key: String, variable: String?) {
+        when (key) {
+            bookSource?.getKey() -> bookSource?.setVariable(variable)
+            currentBook?.bookUrl -> currentBook?.let {
+                it.putCustomVariable(variable)
+                if (inBookshelf) {
+                    saveBook(it)
+                }
+            }
+        }
+    }
+
+    private fun updateVariableDraft(value: String) {
+        _screenState.update { state ->
+            val sheet = state.sheet as? BookInfoSheet.Variable ?: return@update state
+            state.copy(sheet = sheet.copy(editor = sheet.editor.copy(value = value)))
+        }
+    }
+
+    private fun saveVariableDraft() {
+        val editor = (_screenState.value.sheet as? BookInfoSheet.Variable)?.editor ?: return
+        setVariable(editor.key, editor.value)
+        dismissSheet()
+    }
+
+    fun topBook() {
+        currentBook?.let { book ->
+            execute {
+                val minOrder = bookRepository.getMinOrder()
+                book.order = minOrder - 1
+                book.durChapterTime = System.currentTimeMillis()
+                bookRepository.update(book)
+                book
+            }.onSuccess {
+                currentBook = it
+                syncUiState()
+            }
+        }
+    }
+    fun syncFromRemote() {
+        val book = currentBook ?: return
+        if (!book.isLocal) return
+
+        execute {
+            setBusy(true)
+            val newBook = remoteBookRepository.syncBookFromRemote(book)
+            bookRepository.delete(book)
+            bookRepository.insert(newBook)
+            newBook
+        }.onSuccess { newBook ->
+            currentBook = newBook
+            inBookshelf = true
+            syncUiState(isTocLoading = true)
+            loadChapter(newBook)
+            showMessage("同步完成")
+        }.onFinally {
+            setBusy(false)
+        }.onError {
+            showMessage(it.localizedMessage ?: "同步失败")
+        }
+    }
+
+    fun uploadBook(success: () -> Unit) {
+        val book = currentBook ?: return
+        execute {
+            setBusy(true)
+            remoteBookRepository.uploadBook(book)
+            saveBook(book)
+        }.onSuccess {
+            success.invoke()
+        }.onFinally {
+            setBusy(false)
+        }.onError {
+            showMessage(it.localizedMessage ?: "操作失败")
+        }
+    }
+
+    fun clearCache() {
+        currentBook?.let { book ->
+            execute {
+                clearBookCacheUseCase.execute(book.bookUrl)
+                if (ReadBook.book?.bookUrl == book.bookUrl) {
+                    ReadBook.clearTextChapter()
+                }
+            }.onSuccess {
+                showMessage(R.string.clear_cache_success)
+            }.onError {
+                showMessage("清理缓存出错\n${it.localizedMessage}")
+            }
+        }
+    }
+
+    private fun saveCoverToGallery(path: String) {
+        val book = currentBook
+        val sourceOrigin = if (book?.getDisplayCover() == path) book.origin else null
+        execute {
+            setBusy(true)
+            val request = buildCoverImageRequest(
+                context = context,
+                data = path,
+                sourceOrigin = sourceOrigin,
+                loadOnlyWifi = coverSettingsGateway.currentSettings.loadOnlyOnWifi,
+                crossfade = false
+            )
+            val result = imageLoader.execute(request)
+            if (result is SuccessResult) {
+                val bitmap = result.image.toBitmap()
+                val outputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+                val byteArray = outputStream.toByteArray()
+                ImageSaveUtils.saveImageToGallery(context, byteArray, "Cover_")
+            } else {
+                false
+            }
+        }.onSuccess { success ->
+            if (success) {
+                showMessage("保存成功")
+            } else {
+                showMessage("保存失败")
+            }
+        }.onFinally {
+            setBusy(false)
+        }.onError {
+            showMessage("保存出错: ${it.localizedMessage}")
+        }
+    }
+
+    fun saveRemark(remark: String, success: (() -> Unit)? = null) {
+        currentBook?.let { book ->
+            execute {
+                book.remark = remark
+                book.save()
+                book
+            }.onSuccess {
+                currentBook = it
+                syncUiState()
+                success?.invoke()
+            }
+        }
+    }
+
+    fun saveBook(book: Book?, success: (() -> Unit)? = null) {
+        book ?: return
+        execute {
+            if (book.order == 0) {
+                book.order = bookRepository.getMinOrder() - 1
+            }
+            bookRepository.getBook(book.name, book.author)?.let {
+                book.durChapterIndex = it.durChapterIndex
+                book.durChapterPos = it.durChapterPos
+                book.durChapterTitle = it.durChapterTitle
+            }
+            book.save()
+            if (ReadBook.isCurrentBook(book)) {
+                ReadBook.replaceCurrentBook(book)
+            } else if (AudioPlay.book?.isSameNameAuthor(book) == true) {
+                AudioPlay.book = book
+            }
+            book
+        }.onSuccess {
+            if (currentBook?.bookUrl == it.bookUrl) {
+                currentBook = it
+                syncUiState()
+            }
+            success?.invoke()
+        }
+    }
+
+    fun saveChapterList(success: (() -> Unit)? = null) {
+        execute {
+            bookRepository.insertChapters(*currentChapterList.toTypedArray())
+        }.onSuccess {
+            success?.invoke()
+        }
+    }
+
+    fun addToBookshelf(success: (() -> Unit)? = null) {
+        val book = currentBook ?: return
+        execute {
+            // 书架允许同名同作者在架，入架前必须先查重：命中就交给冲突 Sheet 让用户选共存还是迁移，
+            // 绝不静默插一份，也绝不把已有作品的阅读进度悄悄挪到这本新书上。
+            val conflict = findBookshelfConflictUseCase.execute(book)
+            if (conflict != null) {
+                conflict
+            } else {
+                prepareBookForShelf(book)
+                book.save()
+                SourceCallBack.callBackBook(SourceCallBack.ADD_BOOK_SHELF, bookSource, book)
+                bookRepository.insertChapters(*currentChapterList.toTypedArray())
+                book
+            }
+        }.onSuccess { result ->
+            when (result) {
+                is BookshelfConflict -> {
+                    pendingShelfBook = book
+                    _screenState.update { state ->
+                        state.copy(shelfConflict = result, isResolvingShelfConflict = false)
+                    }
+                }
+
+                else -> {
+                    (result as? Book)?.let { added ->
+                        applyBookOnShelf(added)
+                        success?.invoke()
+                    }
+                }
+            }
+        }
+    }
+
+    /** 入架前的通用处理：去掉「未上架」标记并保证排序值落在书架最前。 */
+    private suspend fun prepareBookForShelf(book: Book) {
+        book.removeType(BookType.notShelf)
+        if (book.order == 0) {
+            book.order = bookRepository.getMinOrder() - 1
+        }
+    }
+
+    /** 书籍成功进入书架后，详情页需要同步的宿主状态。 */
+    private fun applyBookOnShelf(book: Book) {
+        if (ReadBook.isCurrentBook(book)) {
+            ReadBook.replaceCurrentBook(book)
+        } else if (AudioPlay.book?.isSameNameAuthor(book) == true) {
+            AudioPlay.book = book
+        }
+        currentBook = book
+        inBookshelf = true
+        // 入架后按钮语义变了（点击=「书架操作」Sheet），副本要按新状态重算：共存会多一本、迁移会少一本
+        invalidateShelfDuplicates()
+        syncUiState()
+        viewModelScope.launch { refreshShelfDuplicates(book) }
+    }
+
+    /**
+     * 统计书架里同一部作品的**其他**副本，驱动书架按钮的冲突态与「书架操作」Sheet 的副本列表。
+     *
+     * 判定复用入架查重的同一个用例（[FindBookshelfConflictUseCase]，它按 bookUrl 排除自身），
+     * 因此本书未入架时「按钮是冲突态」⟺「点击真的会弹冲突 Sheet」，入口承诺与实际行为一致；
+     * 已入架时同一份结果就是「还有哪几本是同一部作品」。
+     *
+     * 只影响展示，用户在 Sheet 里仍会看到具体是哪几本，所以用宽松「疑似」口径是安全的：
+     * 没有「静默把人带去另一本书」这种代价，不需要另立严格口径。
+     */
+    private suspend fun refreshShelfDuplicates(book: Book) {
+        val identity = BookMatchKey.of(book.name) to BookMatchKey.of(book.author)
+        // 身份没变就不重查（见 [shelfDuplicateIdentity]）
+        if (identity == shelfDuplicateIdentity) return
+        shelfDuplicateIdentity = identity
+        val copies = findBookshelfConflictUseCase.execute(book)?.candidates.orEmpty()
+        // 期间身份可能已被更可信的一次（爬取后）覆盖，旧结论不能反过来盖掉新的
+        if (shelfDuplicateIdentity == identity) {
+            setShelfDuplicates(copies)
+        }
+    }
+
+    private fun setShelfDuplicates(value: List<ConflictBookSummary>) {
+        if (shelfDuplicates == value) return
+        shelfDuplicates = value
+        syncUiState()
+    }
+
+    /** 书架内容被本页动作改动后，之前的统计结论作废。 */
+    private fun invalidateShelfDuplicates() {
+        shelfDuplicateIdentity = null
+    }
+
+    /**
+     * 共存 / 迁移的落地执行。
+     *
+     * 两条路径都复用 [ResolveBookshelfConflictUseCase]（与搜索页加入书架同一套语义与选项），
+     * 完成后只补做详情页特有的宿主同步。目录优先用详情页已经加载好的，避免再发一次请求。
+     */
+    private fun resolveShelfConflict(
+        existingBookUrl: String,
+        options: ChangeSourceMigrationOptions,
+        coexist: Boolean,
+    ) {
+        val book = pendingShelfBook ?: return
+        val chapters = currentChapterList.takeIf { it.isNotEmpty() }
+        _screenState.update { it.copy(isResolvingShelfConflict = true) }
+        execute {
+            if (coexist) {
+                resolveBookshelfConflictUseCase.coexist(
+                    existingBookUrl = existingBookUrl,
+                    newBook = book,
+                    options = options,
+                    chapters = chapters,
+                )
+            } else {
+                resolveBookshelfConflictUseCase.migrate(
+                    existingBookUrl = existingBookUrl,
+                    newBook = book,
+                    options = options,
+                    chapters = chapters,
+                )
+            }
+            book
+        }.onSuccess { resolved ->
+            // 迁移后书架上的旧书已被删除，补一次回调让书源收到入架事件。
+            SourceCallBack.callBackBook(SourceCallBack.ADD_BOOK_SHELF, bookSource, resolved)
+            if (chapters != null) {
+                currentChapterList = chapters
+            }
+            pendingShelfBook = null
+            _screenState.update { it.copy(shelfConflict = null, isResolvingShelfConflict = false) }
+            applyBookOnShelf(resolved)
+            showMessage(
+                if (coexist) R.string.bookshelf_conflict_coexist_done
+                else R.string.bookshelf_conflict_migrate_done
+            )
+        }.onError {
+            AppLog.put("处理书架冲突出错", it)
+            pendingShelfBook = null
+            _screenState.update { it.copy(shelfConflict = null, isResolvingShelfConflict = false) }
+            showMessage(
+                if (it is BookTocUnavailableException) {
+                    R.string.bookshelf_conflict_toc_failed
+                } else {
+                    R.string.bookshelf_conflict_resolve_failed
+                }
+            )
+        }
+    }
+
+    /**
+     * 「另存新书」入架。
+     *
+     * 这里**有意不做查重**：该入口只由换源 Sheet 的「新增书籍」选项触发，而换源 Sheet 在
+     * 走这条分支之前已经调用过 `FindBookshelfConflictUseCase`，命中冲突时会改为弹冲突 Sheet
+     * （见 [resolveShelfConflict]），不会落到这里。重复检测放在一处，避免同一动作被问两次。
+     */
+    fun addToBookshelf(book: Book, toc: List<BookChapter>, success: (() -> Unit)? = null) {
+        execute {
+            book.removeType(BookType.notShelf)
+            if (book.order == 0) {
+                book.order = bookRepository.getMinOrder() - 1
+            }
+            bookRepository.insert(book)
+            bookRepository.insertChapters(*toc.toTypedArray())
+            book
+        }.onSuccess {
+            if (currentBook?.bookUrl == it.bookUrl) {
+                currentBook = it
+                currentChapterList = toc
+                inBookshelf = true
+                syncUiState(isTocLoading = false)
+            }
+            success?.invoke()
+        }.onError {
+            AppLog.put("添加书籍到书架失败", it)
+            showMessage("添加书籍失败")
+        }
+    }
+
+    fun delBook(deleteOriginal: Boolean = false, success: (() -> Unit)? = null) {
+        val book = currentBook ?: return
+        execute {
+            inBookshelf = false
+            invalidateShelfDuplicates()
+            if (book.isLocal) {
+                LocalBook.deleteBook(book, deleteOriginal)
+            }
+            book.delete()
+        }.onSuccess {
+            success?.invoke()
+        }
+    }
+
+    fun refreshBook(book: Book) {
+        syncUiState(isTocLoading = true)
+        execute {
+            if (book.isLocal) {
+                book.tocUrl = ""
+                remoteBookRepository.refreshLocalBook(book)
+            } else {
+                val bs = bookSource ?: return@execute
+                if (book.originName != bs.bookSourceName) {
+                    book.originName = bs.bookSourceName
+                }
+            }
+            book
+        }.onError {
+            when (it) {
+                is ObjectNotFoundException -> {
+                    book.origin = BookType.localTag
+                }
+
+                else -> {
+                    AppLog.put("下载远程书籍<${book.name}>失败", it)
+                }
+            }
+        }.onFinally {
+            loadBookInfo(book, canReName = false)
+        }
+    }
+
+    fun loadBookInfo(
+        book: Book,
+        canReName: Boolean = true,
+        runPreUpdateJs: Boolean = true,
+        scope: CoroutineScope = viewModelScope,
+        showLoading: Boolean = true,
+    ) {
+        syncUiState(isTocLoading = showLoading)
+        if (book.isLocal) {
+            LocalBook.upBookInfo(book)
+            currentBook = book
+            syncUiState(isTocLoading = showLoading)
+            loadChapter(book, showLoading = showLoading)
+        } else {
+            val source = bookSource ?: run {
+                currentChapterList = emptyList()
+                syncUiState(isTocLoading = false)
+                showMessage(R.string.error_no_source)
+                return
+            }
+            WebBook.getBookInfo(scope, source, book, canReName = canReName)
+                .onSuccess(IO) { loadedBook ->
+                    val dbBook = bookRepository.getBook(loadedBook.name, loadedBook.author)
+                    if (!inBookshelf && dbBook != null && !dbBook.isNotShelf && dbBook.origin == loadedBook.origin) {
+                        dbBook.updateTo(loadedBook)
+                        inBookshelf = true
+                    }
+                    currentBook = loadedBook
+                    if (inBookshelf) {
+                        loadedBook.save()
+                    }
+                    // 爬取后的身份最可信（canReName 可能改写书名/作者），重算一次
+                    refreshShelfDuplicates(loadedBook)
+                    syncUiState(isTocLoading = showLoading)
+                    refreshMeta(loadedBook)
+                    if (loadedBook.isWebFile) {
+                        loadWebFile(loadedBook)
+                        currentChapterList = emptyList()
+                        syncUiState(isTocLoading = false)
+                    } else {
+                        loadChapter(loadedBook, runPreUpdateJs, showLoading = showLoading)
+                    }
+                    scheduleRelatedBooksLoad(loadedBook, source)
+                }.onError {
+                    AppLog.put("获取书籍信息失败\n${it.localizedMessage}", it)
+                    showMessage(R.string.error_get_book_info)
+                    syncUiState(isTocLoading = false)
+                }
+        }
+    }
+    fun changeTo(
+        source: BookSource,
+        book: Book,
+        toc: List<BookChapter>,
+        options: ChangeSourceMigrationOptions,
+        replacedBook: Book? = null,
+    ) {
+        val shouldPersist = replacedBook != null || inBookshelf
+        changeSourceCoroutine?.cancel()
+        changeSourceCoroutine = execute {
+            val oldBook = replacedBook ?: currentBook ?: return@execute book
+            if (shouldPersist) {
+                changeBookSourceUseCase.changeTo(oldBook, book, toc, options)
+            } else {
+                changeBookSourceUseCase.applyMigration(oldBook, book, toc, options)
+            }
+            book
+        }.onSuccess {
+            bookSource = source
+            currentBook = it
+            if (shouldPersist) {
+                inBookshelf = true
+            }
+            currentChapterList = toc
+            currentRelatedBooks = emptyList()
+            currentCharacters = emptyList()
+            currentGroupNames = null
+            currentHasCustomGroup = false
+            currentKindLabels = emptyList()
+            syncUiState(isTocLoading = false)
+            refreshMeta(it)
+            // 换源会改写书名/作者，旧的副本统计已不对应这本书
+            refreshShelfDuplicates(it)
+            postEvent(EventBus.SOURCE_CHANGED, book.bookUrl)
+        }
+    }
+
+    private fun upBook(book: Book, source: BookSource?) {
+        currentBook = book
+        currentChapterList = emptyList()
+        tocLoadFailed = false
+        currentWebFiles = emptyList()
+        currentRelatedBooks = emptyList()
+        currentCharacters = emptyList()
+        currentKindLabels = emptyList()
+        currentGroupNames = null
+        currentHasCustomGroup = false
+        bookSource = source
+        syncUiState(isTocLoading = false)
+        loadBookCharacters(book.bookUrl)
+        loadBookKnowledge(book.bookUrl)
+        loadBookEvents(book.bookUrl)
+        refreshMeta(book)
+        upCoverByRule(book)
+        // 副本统计与书籍加载无关，异步跑即可；爬取路径会在拿到更可信的身份后再重算一次
+        viewModelScope.launch { refreshShelfDuplicates(book) }
+        if (book.tocUrl.isEmpty() && !book.isLocal) {
+            loadBookInfo(book, runPreUpdateJs = inBookshelf, showLoading = false)
+        } else {
+            execute {
+                bookRepository.getChapters(book.bookUrl)
+            }.onSuccess { chapters ->
+                if (chapters.isNotEmpty()) {
+                    currentChapterList = chapters
+                    syncUiState(isTocLoading = false)
+                    source?.let { scheduleRelatedBooksLoad(book, it) }
+                } else {
+                    loadChapter(book, showLoading = false)
+                }
+            }.onError {
+                loadChapter(book, showLoading = false)
+            }
+        }
+    }
+
+    private fun upCoverByRule(book: Book) {
+        execute {
+            if (book.coverUrl.isNullOrBlank() && book.customCoverUrl.isNullOrBlank()) {
+                val coverUrl = BookCover.searchCover(book)
+                if (!coverUrl.isNullOrBlank()) {
+                    book.customCoverUrl = coverUrl
+                    if (inBookshelf) {
+                        saveBook(book)
+                    }
+                }
+            }
+            book
+        }.onSuccess {
+            if (currentBook?.bookUrl == it.bookUrl) {
+                currentBook = it
+                syncUiState()
+            }
+        }
+    }
+
+    private fun refreshMeta(book: Book) {
+        execute {
+            book.upKind()
+            val userGroupIds = bookGroupRepository.getIdsSum()
+            val groupAnd = userGroupIds and book.group
+            val hasCustomGroup = book.group > 0L && groupAnd != 0L
+            val groupNames = bookGroupRepository.getGroupNames(book.group).joinToString(",")
+            val normalizedGroupNames = groupNames.ifBlank { null }
+            bookRepository.update(book)
+            val finalKinds = book.getDisplayTagList()
+            val enabledRules = highlightTagRuleRepository.getEnabled()
+            val (highlighted, regular) = parseHighlightedTags(finalKinds, enabledRules)
+            HighlightMeta(highlighted, regular, normalizedGroupNames, hasCustomGroup)
+        }.onSuccess {
+            currentHighlightedTags = it.highlighted
+            currentKindLabels = it.regular
+            currentGroupNames = it.groupNames
+            currentHasCustomGroup = it.hasCustomGroup
+            syncUiState()
+        }
+    }
+
+    private data class HighlightMeta(
+        val highlighted: List<HighlightedTag>,
+        val regular: List<String>,
+        val groupNames: String?,
+        val hasCustomGroup: Boolean,
+    )
+
+    private fun loadChapter(
+        book: Book,
+        runPreUpdateJs: Boolean = true,
+        scope: CoroutineScope = viewModelScope,
+        showLoading: Boolean = true,
+    ) {
+        tocLoadFailed = false
+        syncUiState(isTocLoading = showLoading)
+        if (book.isLocal) {
+            execute(scope) {
+                LocalBook.getChapterList(book).also {
+                    bookRepository.update(book)
+                    bookRepository.deleteChaptersByBook(book.bookUrl)
+                    bookRepository.insertChapters(*it.toTypedArray())
+                    ReadBook.onChapterListUpdated(book)
+                }
+            }.onSuccess {
+                currentBook = book
+                currentChapterList = it
+                syncUiState(isTocLoading = false)
+            }.onError {
+                currentChapterList = emptyList()
+                tocLoadFailed = true
+                syncUiState(isTocLoading = false)
+            }
+        } else {
+            val source = bookSource ?: run {
+                currentChapterList = emptyList()
+                syncUiState(isTocLoading = false)
+                showMessage(R.string.error_no_source)
+                return
+            }
+            val oldBook = book.copy()
+            WebBook.getChapterList(scope, source, book, runPreUpdateJs)
+                .onSuccess(IO) { chapters ->
+                    if (inBookshelf) {
+                        bookRepository.replace(oldBook, book)
+                        if (oldBook.bookUrl != book.bookUrl) {
+                            BookHelp.updateCacheFolder(oldBook, book)
+                        }
+                        bookRepository.deleteChaptersByBook(oldBook.bookUrl)
+                        bookRepository.insertChapters(*chapters.toTypedArray())
+                        ReadBook.onChapterListUpdated(book)
+                    }
+                    currentBook = book
+                    currentChapterList = chapters
+                    syncUiState(isTocLoading = false)
+                }.onError {
+                    currentChapterList = emptyList()
+                    tocLoadFailed = true
+                    syncUiState(isTocLoading = false)
+                    AppLog.put("获取目录失败\n${it.localizedMessage}", it)
+                }
+        }
+    }
+
+    private fun loadWebFile(book: Book) {
+        execute {
+            val fileNameNoExtension = if (book.author.isBlank()) book.name else "${book.name} 作者：${book.author}"
+            book.downloadUrls.orEmpty().map { url ->
+                val analyzeUrl = AnalyzeUrl(
+                    url,
+                    source = bookSource,
+                    coroutineContext = coroutineContext,
+                )
+                val fileName = UrlUtil.getFileName(analyzeUrl)
+                    ?: "${fileNameNoExtension}.${analyzeUrl.type}"
+                BookInfoWebFile(url = url, name = fileName)
+            }
+        }.onSuccess {
+            currentWebFiles = it
+            syncUiState(isTocLoading = false)
+        }.onError {
+            currentWebFiles = emptyList()
+            showMessage("LoadWebFileError\n${it.localizedMessage}")
+            syncUiState(isTocLoading = false)
+        }
+    }
+
+    private fun onReadClick() {
+        val book = currentBook ?: return
+        if (book.isWebFile) {
+            setSheet(BookInfoSheet.WebFiles(openAfterImport = true))
+        } else {
+            readBook(book)
+        }
+    }
+
+    private fun onShelfClick() {
+        val book = currentBook ?: return
+        if (inBookshelf) {
+            // 已入架：摊开删除 Sheet（其他副本 / 分组 / 删除确认）。
+            // 关掉「删除前提醒」时按设置直接删，不打断。
+            if (LocalConfig.bookInfoDeleteAlert) {
+                setSheet(BookInfoSheet.ShelfDelete)
+            } else {
+                deleteBook(LocalConfig.deleteBookOriginal)
+            }
+        } else if (book.isWebFile) {
+            setSheet(BookInfoSheet.WebFiles(openAfterImport = false))
+        } else {
+            addToBookshelf()
+        }
+    }
+
+    private fun openShelfDuplicate(summary: ConflictBookSummary) {
+        // 先收起 Sheet 再导航：详情页之间跳转会复用同一份 Sheet 状态，
+        // 不收起来的话新页面一进来就显示 Sheet，并把第一次返回键吃掉。
+        dismissSheet()
+        emitEffect(
+            BookInfoEffect.NavigateToBookInfo(
+                name = summary.name,
+                author = summary.author,
+                bookUrl = summary.bookUrl,
+                origin = summary.origin,
+                coverPath = summary.displayCover,
+            )
+        )
+    }
+
+    private fun onTocClick() {
+        val book = currentBook ?: return
+        if (currentChapterList.isEmpty()) {
+            showMessage(R.string.chapter_list_empty)
+            return
+        }
+        if (!inBookshelf) {
+            book.addType(BookType.notShelf)
+            saveBook(book) {
+                saveChapterList {
+                    emitEffect(BookInfoEffect.OpenToc(book.bookUrl))
+                }
+            }
+        } else {
+            emitEffect(BookInfoEffect.OpenToc(book.bookUrl))
+        }
+    }
+
+    private fun updateGroup(groupId: Long) {
+        currentBook?.let { book ->
+            book.group = groupId
+            currentGroupNames = null
+            currentHasCustomGroup = false
+            refreshMeta(book)
+            if (inBookshelf) {
+                saveBook(book)
+            } else if (groupId > 0) {
+                addToBookshelf()
+            } else {
+                syncUiState()
+            }
+        }
+    }
+
+    private fun updateCover(coverUrl: String) {
+        currentBook?.let { book ->
+            book.customCoverUrl = coverUrl
+            currentBook = book
+            syncUiState()
+            if (inBookshelf) {
+                saveBook(book)
+            }
+        }
+    }
+    private fun deleteBook(deleteOriginal: Boolean) {
+        currentBook?.let { book ->
+            LocalConfig.deleteBookOriginal = deleteOriginal
+            _screenState.update { it.copy(deleteOriginal = deleteOriginal) }
+            SourceCallBack.callBackBook(SourceCallBack.DEL_BOOK_SHELF, bookSource, book)
+            delBook(deleteOriginal) {
+                emitEffect(BookInfoEffect.Finish(resultCode = RESULT_OK))
+            }
+        }
+    }
+
+    private fun handleWebFileSelection(webFile: BookInfoWebFile, openAfterImport: Boolean) {
+        when {
+            webFile.isSupported -> {
+                dismissSheet()
+                importOrDownloadWebFile<Book>(webFile) { book ->
+                    if (openAfterImport) {
+                        openReader(book)
+                    }
+                }
+            }
+
+            webFile.isSupportDecompress -> {
+                importOrDownloadWebFile<Uri>(webFile) { uri ->
+                    getArchiveFilesName(uri) { fileNames ->
+                        if (fileNames.size == 1) {
+                            importArchiveBook(uri, fileNames.first()) { book ->
+                                if (openAfterImport) {
+                                    openReader(book)
+                                }
+                            }
+                        } else {
+                            setSheet(
+                                BookInfoSheet.ArchiveEntries(
+                                    archiveUri = uri,
+                                    entries = fileNames,
+                                    openAfterImport = openAfterImport,
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            else -> {
+                showDialog(BookInfoDialog.UnsupportedWebFile(webFile, openAfterImport))
+            }
+        }
+    }
+
+    private fun readBook(book: Book) {
+        if (!inBookshelf) {
+            book.addType(BookType.notShelf)
+            saveBook(book) {
+                saveChapterList {
+                    openReader(book)
+                }
+            }
+        } else {
+            saveBook(book) {
+                openReader(book)
+            }
+        }
+    }
+
+    private fun openReader(book: Book) {
+        emitEffect(BookInfoEffect.OpenReader(book.uiCopy(), inBookshelf, chapterChanged))
+    }
+
+    private fun handleMenuAction(action: BookInfoMenuAction) {
+        val book = currentBook ?: return
+        when (action) {
+            BookInfoMenuAction.CustomButton -> emitEffect(
+                BookInfoEffect.RunSourceCallback(
+                    event = SourceCallBack.CLICK_CUSTOM_BUTTON,
+                    source = bookSource,
+                    book = book.uiCopy(),
+                    action = BookInfoCallbackAction.None,
+                )
+            )
+            BookInfoMenuAction.Edit -> openEdit()
+            BookInfoMenuAction.Share -> {
+                val bookJson = GSON.toJson(book)
+                emitEffect(
+                    BookInfoEffect.RunSourceCallback(
+                        event = SourceCallBack.CLICK_SHARE_BOOK,
+                        source = bookSource,
+                        book = book.uiCopy(),
+                        action = BookInfoCallbackAction.ShareText(
+                            chooserTitle = book.name,
+                            text = "${book.bookUrl}#$bookJson",
+                        )
+                    )
+                )
+            }
+
+            BookInfoMenuAction.Upload -> uploadBook {
+                showMessage("上传成功")
+            }
+            BookInfoMenuAction.SyncRemote -> syncFromRemote()
+            BookInfoMenuAction.Refresh -> refreshCurrentBook()
+            BookInfoMenuAction.ReadRecord -> setSheet(BookInfoSheet.ReadRecord)
+            BookInfoMenuAction.Login -> bookSource?.let {
+                emitEffect(BookInfoEffect.OpenSourceLogin(it.bookSourceUrl))
+            }
+
+            BookInfoMenuAction.Top -> topBook()
+            BookInfoMenuAction.SetSourceVariable -> requestSourceVariableSheet()
+            BookInfoMenuAction.SetBookVariable -> requestBookVariableSheet()
+            BookInfoMenuAction.CopyBookUrl -> emitEffect(
+                BookInfoEffect.RunSourceCallback(
+                    event = SourceCallBack.CLICK_COPY_BOOK_URL,
+                    source = bookSource,
+                    book = book.uiCopy(),
+                    action = BookInfoCallbackAction.CopyText(book.bookUrl),
+                )
+            )
+
+            BookInfoMenuAction.CopyTocUrl -> emitEffect(
+                BookInfoEffect.RunSourceCallback(
+                    event = SourceCallBack.CLICK_COPY_TOC_URL,
+                    source = bookSource,
+                    book = book.uiCopy(),
+                    action = BookInfoCallbackAction.CopyText(book.tocUrl),
+                )
+            )
+
+            BookInfoMenuAction.ToggleCanUpdate -> toggleCanUpdate()
+            BookInfoMenuAction.ToggleSplitLongChapter -> toggleSplitLongChapter()
+            BookInfoMenuAction.ToggleDeleteAlert -> toggleDeleteAlert()
+            BookInfoMenuAction.ClearCache -> emitEffect(
+                BookInfoEffect.RunSourceCallback(
+                    event = SourceCallBack.CLICK_CLEAR_CACHE,
+                    source = bookSource,
+                    book = book.uiCopy(),
+                    action = BookInfoCallbackAction.ClearCache,
+                )
+            )
+
+            BookInfoMenuAction.ShowLog -> showAppLog()
+            BookInfoMenuAction.TogglePrivate -> toggleBookPrivate()
+        }
+    }
+
+    private fun onAuthorClick(longClick: Boolean) {
+        val book = currentBook ?: return
+        emitEffect(
+            BookInfoEffect.RunSourceCallback(
+                event = if (longClick) SourceCallBack.LONG_CLICK_AUTHOR else SourceCallBack.CLICK_AUTHOR,
+                source = bookSource,
+                book = book.uiCopy(),
+                action = BookInfoCallbackAction.Search(book.author),
+            )
+        )
+    }
+
+    private fun onBookNameClick(longClick: Boolean) {
+        val book = currentBook ?: return
+        emitEffect(
+            BookInfoEffect.RunSourceCallback(
+                event = if (longClick) SourceCallBack.LONG_CLICK_BOOK_NAME else SourceCallBack.CLICK_BOOK_NAME,
+                source = bookSource,
+                book = book.uiCopy(),
+                action = BookInfoCallbackAction.Search(book.name),
+            )
+        )
+    }
+
+    private fun onOriginClick() {
+        val book = currentBook ?: return
+        if (book.isLocal) return
+        if (!bookSourceRepository.has(book.origin)) {
+            showMessage(R.string.error_no_source)
+            return
+        }
+        emitEffect(BookInfoEffect.OpenBookSourceEdit(book.origin))
+    }
+
+    fun getArchiveFilesName(archiveFileUri: Uri, onSuccess: (List<String>) -> Unit) {
+        execute {
+            ArchiveUtils.getArchiveFilesName(archiveFileUri) {
+                AppPattern.bookFileRegex.matches(it)
+            }
+        }.onError {
+            AppLog.put("getArchiveEntriesName Error:\n${it.localizedMessage}", it)
+            showMessage("getArchiveEntriesName Error:\n${it.localizedMessage}")
+        }.onSuccess {
+            onSuccess.invoke(it)
+        }
+    }
+
+    fun importArchiveBook(
+        archiveFileUri: Uri,
+        archiveEntryName: String,
+        success: ((Book) -> Unit)? = null,
+    ) {
+        execute {
+            val suffix = archiveEntryName.substringAfterLast(".")
+            LocalBook.importArchiveFile(
+                archiveFileUri,
+                currentBook!!.getExportFileName(suffix)
+            ) {
+                it.contains(archiveEntryName)
+            }.first()
+        }.onSuccess {
+            val book = changeToLocalBook(it)
+            success?.invoke(book)
+        }.onError {
+            AppLog.put("importArchiveBook Error:\n${it.localizedMessage}", it)
+            showMessage("importArchiveBook Error:\n${it.localizedMessage}")
+        }
+    }
+
+    fun <T> importOrDownloadWebFile(webFile: BookInfoWebFile, success: ((T) -> Unit)? = null) {
+        bookSource ?: return
+        val book = currentBook ?: return
+        execute {
+            setBusy(true)
+            if (webFile.isSupported) {
+                val localBook = LocalBook.importFileOnLine(
+                    webFile.url,
+                    book.getExportFileName(webFile.suffix),
+                    bookSource
+                )
+                changeToLocalBook(localBook)
+            } else {
+                LocalBook.saveBookFile(
+                    webFile.url,
+                    book.getExportFileName(webFile.suffix),
+                    bookSource
+                )
+            }
+        }.onSuccess {
+            @Suppress("UNCHECKED_CAST")
+            success?.invoke(it as T)
+        }.onError {
+            when (it) {
+                is NoBooksDirException -> emitEffect(BookInfoEffect.OpenSelectBooksDir)
+                else -> {
+                    AppLog.put("ImportWebFileError\n${it.localizedMessage}", it)
+                    showMessage("ImportWebFileError\n${it.localizedMessage}")
+                }
+            }
+        }.onFinally {
+            setBusy(false)
+        }
+    }
+
+    private fun changeToLocalBook(localBook: Book): Book {
+        return LocalBook.mergeBook(localBook, currentBook).let {
+            currentBook = it
+            currentWebFiles = emptyList()
+            inBookshelf = true
+            syncUiState(isTocLoading = true)
+            refreshMeta(it)
+            loadChapter(it)
+            it
+        }
+    }
+
+    private fun observeReadRecordIfNeeded(book: Book?) {
+        if (book == null) {
+            clearReadRecordObserve()
+            return
+        }
+        // 阅读统计按书籍副本统计：书架允许同名作者作品共存，不能让一个副本继承另一个副本的时长。
+        val key = "${book.name}|||${book.author}|||${book.bookUrl}"
+        if (observingReadRecordKey == key && readRecordObserveJob?.isActive == true) return
+        observingReadRecordKey = key
+        readRecordObserveJob?.cancel()
+        readRecordObserveJob = viewModelScope.launch {
+            combine(
+                readRecordRepository.getBookCopyReadTime(book.bookUrl, book.name, book.author),
+                readRecordRepository.getBookCopyTimelineDays(book.bookUrl, book.name, book.author)
+            ) { totalTime, timelineDays ->
+                totalTime to timelineDays
+            }.collectLatest { (totalTime, timelineDays) ->
+                currentReadRecordTotalTime = totalTime
+                currentReadRecordTimelineDays = timelineDays
+                _screenState.update {
+                    it.copy(
+                        readRecordTotalTime = currentReadRecordTotalTime,
+                        readRecordTimelineDays = currentReadRecordTimelineDays
+                    )
+                }
+            }
+        }
+    }
+
+    private fun clearReadRecordObserve() {
+        readRecordObserveJob?.cancel()
+        readRecordObserveJob = null
+        observingReadRecordKey = null
+        currentReadRecordTotalTime = 0L
+        currentReadRecordTimelineDays = emptyList()
+    }
+
+    private fun dismissSheet() {
+        setSheet(BookInfoSheet.None)
+    }
+
+    private fun setSheet(sheet: BookInfoSheet) {
+        _screenState.update { it.copy(sheet = sheet) }
+    }
+
+    private fun dismissDialog() {
+        showDialog(null)
+    }
+
+    private fun showDialog(dialog: BookInfoDialog?) {
+        _screenState.update { it.copy(dialog = dialog) }
+    }
+
+    private fun setBusy(isBusy: Boolean) {
+        _screenState.update { it.copy(isBusy = isBusy) }
+    }
+
+    private fun syncUiState(isTocLoading: Boolean = _screenState.value.isTocLoading) {
+        _screenState.update {
+            it.copy(
+                book = currentBook?.toBookInfoBookUi(),
+                hasChapters = currentChapterList.isNotEmpty(),
+                tocLoadFailed = tocLoadFailed,
+                webFiles = currentWebFiles,
+                relatedBooks = currentRelatedBooks.toImmutableList(),
+                characters = currentCharacters.toImmutableList(),
+                highlightedTags = currentHighlightedTags,
+                kindLabels = currentKindLabels,
+                groupNames = currentGroupNames,
+                hasCustomGroup = currentHasCustomGroup,
+                readRecordTotalTime = currentReadRecordTotalTime,
+                readRecordTimelineDays = currentReadRecordTimelineDays,
+                inBookshelf = inBookshelf,
+                bookSource = bookSource,
+                bookSourceUi = bookSource?.toBookInfoSourceUi(),
+                isTocLoading = isTocLoading,
+                shelfDuplicates = shelfDuplicates.toImmutableList(),
+                deleteAlertEnabled = LocalConfig.bookInfoDeleteAlert,
+                deleteOriginal = LocalConfig.deleteBookOriginal,
+            )
+        }
+    }
+
+    private fun onRelatedBookClick(book: SearchBook) {
+        emitEffect(
+            BookInfoEffect.NavigateToBookInfo(
+                name = book.name,
+                author = book.author,
+                bookUrl = book.bookUrl,
+                origin = book.origin,
+                coverPath = book.coverUrl,
+            )
+        )
+    }
+
+    private fun onRelatedBooksMore(title: String, resolvedUrl: String) {
+        val source = bookSource ?: return
+        emitEffect(
+            BookInfoEffect.NavigateToExploreShow(
+                title = title,
+                sourceUrl = source.bookSourceUrl,
+                exploreUrl = resolvedUrl,
+            )
+        )
+    }
+
+    private fun openCharacterDetail(characterId: String?) {
+        val bookUrl = currentBook?.bookUrl ?: return
+        emitEffect(BookInfoEffect.OpenCharacterDetail(bookUrl, characterId))
+    }
+
+    private fun openCharacterNetwork() {
+        val bookUrl = currentBook?.bookUrl ?: return
+        emitEffect(BookInfoEffect.OpenCharacterNetwork(bookUrl))
+    }
+
+    private fun openKnowledgeList() {
+        val bookUrl = currentBook?.bookUrl ?: return
+        emitEffect(BookInfoEffect.OpenKnowledgeList(bookUrl))
+    }
+
+    private fun openCharacterList() {
+        val bookUrl = currentBook?.bookUrl ?: return
+        emitEffect(BookInfoEffect.OpenCharacterList(bookUrl))
+    }
+
+    private fun openEventList() {
+        val bookUrl = currentBook?.bookUrl ?: return
+        emitEffect(BookInfoEffect.OpenEventList(bookUrl))
+    }
+
+    private var knowledgeLoadJob: Job? = null
+    private var eventLoadJob: Job? = null
+    private var currentKnowledgeEntries: List<BookInfoKnowledgeUi> = emptyList()
+    private var currentRecentEvents: List<BookInfoEventUi> = emptyList()
+
+    private fun loadBookCharacters(bookUrl: String) {
+        characterLoadJob?.cancel()
+        characterLoadJob = viewModelScope.launch {
+            val roleOrder = mapOf(
+                io.legado.app.data.entities.BookCharacterProfile.ROLE_MALE_LEAD to 0,
+                io.legado.app.data.entities.BookCharacterProfile.ROLE_FEMALE_LEAD to 1,
+                io.legado.app.data.entities.BookCharacterProfile.ROLE_MALE_SUPPORTING to 2,
+                io.legado.app.data.entities.BookCharacterProfile.ROLE_FEMALE_SUPPORTING to 3,
+            )
+            val characters = try {
+                withContext(IO) {
+                    bookKnowledgeGateway.getCharacterProfiles(bookUrl, limit = 50)
+                }.sortedBy { roleOrder[it.role] ?: 99 }
+                    .map {
+                        val tags = GSON.fromJsonArray<String>(it.tagsJson).getOrNull().orEmpty()
+                        BookInfoCharacterUi(
+                            id = it.id,
+                            name = it.name,
+                            avatarUri = it.avatarUri,
+                            role = it.role,
+                            tags = tags.joinToString(" | "),
+                            summary = it.summary,
+                        )
+                    }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                emptyList()
+            }
+            if (currentBook?.bookUrl != bookUrl) return@launch
+            currentCharacters = characters
+            _screenState.update {
+                it.copy(characters = currentCharacters.toImmutableList())
+            }
+        }
+    }
+
+    private fun loadBookKnowledge(bookUrl: String) {
+        knowledgeLoadJob?.cancel()
+        knowledgeLoadJob = viewModelScope.launch {
+            val entries = try {
+                withContext(IO) {
+                    bookKnowledgeGateway.searchKnowledgeEntries(bookUrl, "", null, null, 10)
+                }.map {
+                    BookInfoKnowledgeUi(
+                        id = it.id,
+                        type = it.type,
+                        title = it.title,
+                        summary = it.content.take(80),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                emptyList()
+            }
+            if (currentBook?.bookUrl != bookUrl) return@launch
+            currentKnowledgeEntries = entries
+            _screenState.update {
+                it.copy(knowledgeEntries = currentKnowledgeEntries.toImmutableList())
+            }
+        }
+    }
+
+    private fun loadBookEvents(bookUrl: String) {
+        eventLoadJob?.cancel()
+        eventLoadJob = viewModelScope.launch {
+            val events = try {
+                withContext(IO) {
+                    bookKnowledgeGateway.getCharacterEvents(bookUrl, null, null, 10)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                emptyList()
+            }
+            if (currentBook?.bookUrl != bookUrl) return@launch
+            val profiles = try {
+                withContext(IO) {
+                    bookKnowledgeGateway.getCharacterProfiles(bookUrl, 200)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                emptyList()
+            }
+            val nameMap = profiles.associate { it.id to it.name }
+            currentRecentEvents = events.map { event ->
+                BookInfoEventUi(
+                    id = event.id,
+                    chapterTitle = event.chapterTitle,
+                    eventTimeText = event.eventTimeText,
+                    content = event.content.take(80),
+                    characterName = nameMap[event.characterId].orEmpty(),
+                )
+            }
+            _screenState.update {
+                it.copy(recentEvents = currentRecentEvents.toImmutableList())
+            }
+        }
+    }
+
+    private fun scheduleRelatedBooksLoad(
+        book: Book,
+        source: BookSource,
+        delayMillis: Long = 350L,
+    ) {
+        relatedBooksLoadJob?.cancel()
+        relatedBooksLoadJob = viewModelScope.launch {
+            delay(delayMillis)
+            if (!isCurrentBookSource(book, source)) return@launch
+
+            val modules = parseRelatedBookModules(source)
+            if (modules.isEmpty()) {
+                currentRelatedBooks = emptyList()
+                syncUiState()
+                return@launch
+            }
+
+            try {
+                val result = withContext(IO) {
+                    loadRelatedBooks(book, source, modules)
+                }
+                if (!isCurrentBookSource(book, source)) return@launch
+                currentRelatedBooks = result
+                syncUiState()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                if (!isCurrentBookSource(book, source)) return@launch
+                currentRelatedBooks = emptyList()
+                syncUiState()
+            }
+        }
+    }
+
+    private fun isCurrentBookSource(book: Book, source: BookSource): Boolean {
+        return currentBook?.bookUrl == book.bookUrl && bookSource?.bookSourceUrl == source.bookSourceUrl
+    }
+
+    private fun parseRelatedBookModules(source: BookSource): List<RelatedBooksDef> {
+        val modulesJson = source.ruleBookInfo?.relatedBooks
+        if (modulesJson.isNullOrBlank()) {
+            return emptyList()
+        }
+        return try {
+            GSON.fromJsonArray<RelatedBooksDef>(modulesJson)
+                .getOrNull()
+                ?.filter { !it.url.isNullOrBlank() }
+                ?.map { it.copy(url = it.url!!.replace(Regex("\\s"), "")) }
+                ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private suspend fun loadRelatedBooks(
+        book: Book,
+        source: BookSource,
+        modules: List<RelatedBooksDef>,
+    ): List<RelatedBooksUi> {
+        return coroutineScope {
+            modules.map { def ->
+                async {
+                    val url = def.url.orEmpty()
+                    val (resolvedUrl, books) = try {
+                        resolveAndExplore(source, url, book)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        url to emptyList()
+                    }
+                    RelatedBooksUi(
+                        key = def.key ?: def.title.orEmpty(),
+                        title = def.title.orEmpty(),
+                        url = url,
+                        resolvedUrl = resolvedUrl,
+                        books = books.filter { it.bookUrl != book.bookUrl }.toImmutableList(),
+                    )
+                }
+            }.awaitAll().filter { it.books.isNotEmpty() }
+        }
+    }
+
+    private suspend fun resolveAndExplore(
+        source: BookSource,
+        url: String,
+        book: Book,
+    ): Pair<String, List<SearchBook>> {
+        return WebBook.exploreBookWithResolvedUrl(source, url, 1, book)
+    }
+
+    private fun showMessage(resId: Int) = showMessage(context.getString(resId))
+
+    private fun showMessage(message: String) {
+        emitEffect(BookInfoEffect.ShowMessage(message))
+    }
+
+    private fun emitEffect(effect: BookInfoEffect) {
+        _effects.tryEmit(effect)
+    }
+
+    private fun Book.toBookInfoBookUi(): BookInfoBookUi {
+        return BookInfoBookUi(
+            bookUrl = bookUrl,
+            name = name,
+            author = author,
+            realAuthor = getRealAuthor(),
+            origin = origin,
+            originName = originName,
+            coverPath = getDisplayCover(),
+            group = group,
+            isLocal = isLocal,
+            type = type,
+            canUpdate = canUpdate,
+            splitLongChapter = getSplitLongChapter(),
+            durChapterTitle = durChapterTitle,
+            latestChapterTitle = latestChapterTitle,
+            totalChapterNum = totalChapterNum,
+            durChapterIndex = durChapterIndex,
+            durChapterPos = durChapterPos,
+            remark = remark,
+            intro = getDisplayIntro(),
+        )
+    }
+
+    private fun BookSource.toBookInfoSourceUi(): BookInfoSourceUi {
+        return BookInfoSourceUi(
+            sourceUrl = bookSourceUrl,
+            hasLogin = !loginUrl.isNullOrBlank(),
+            hasCustomButton = customButton,
+        )
+    }
+
+    private fun Book.uiCopy(): Book {
+        return copy().also { snapshot ->
+            snapshot.infoHtml = infoHtml
+            snapshot.tocHtml = tocHtml
+            snapshot.downloadUrls = downloadUrls
+        }
+    }
+}
+
+/**
+ * 把三类设置（各自的 SSOT）叠加到屏幕状态上，得到完整的 UI 状态。
+ * 纯函数：设置字段只来自参数，与屏幕状态如何重置无关。
+ */
+internal fun BookInfoUiState.withSettings(
+    theme: ThemeSettings,
+    cover: CoverSettings,
+    other: OtherSettings,
+): BookInfoUiState = copy(
+    bookInfoFollowCoverColor = theme.bookInfoFollowCoverColor,
+    bookInfoNetworkCoverBackground = theme.bookInfoNetworkCoverBackground,
+    bookInfoDefaultCoverBackground = theme.bookInfoDefaultCoverBackground,
+    loadCoverOnlyOnWifi = cover.loadOnlyOnWifi,
+    defaultCover = cover.defaultCover,
+    defaultCoverDark = cover.defaultCoverDark,
+    showMangaUi = other.showMangaUi,
+)
+
+private val BookInfoWebFile.suffix: String
+    get() = UrlUtil.getSuffix(name)
+
+private val BookInfoWebFile.isSupported: Boolean
+    get() = AppPattern.bookFileRegex.matches(name)
+
+private val BookInfoWebFile.isSupportDecompress: Boolean
+    get() = AppPattern.archiveFileRegex.matches(name)
+
+private data class RelatedBooksDef(
+    val key: String? = null,
+    val title: String? = null,
+    val url: String? = null,
+)
