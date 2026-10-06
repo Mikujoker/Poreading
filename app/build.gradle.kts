@@ -209,9 +209,11 @@ dependencies {
     implementation(libs.androidx.viewpager2)
     implementation(libs.androidx.webkit)
     // EPUB 无损渲染：Readium Kotlin toolkit（navigator 内部就是 WebView，分页/缩放/手势/主题/Locator 现成）
-    implementation(libs.readium.shared)
-    implementation(libs.readium.streamer)
-    implementation(libs.readium.navigator)
+    // 必须排除 Readium 传递来的 jsoup（1.22.x）：本仓库因 issue #3811 固定在 jsoup 1.16.2，
+    // 新版空注解会把 AnalyzeByJSoup 里的 `elements[i] = null` 判成编译错误（实测 BUILD FAILED）
+    implementation(libs.readium.shared) { exclude(group = "org.jsoup", module = "jsoup") }
+    implementation(libs.readium.streamer) { exclude(group = "org.jsoup", module = "jsoup") }
+    implementation(libs.readium.navigator) { exclude(group = "org.jsoup", module = "jsoup") }
     implementation(libs.material)
     implementation(libs.flexbox)
     implementation(libs.gson)
