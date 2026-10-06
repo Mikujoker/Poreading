@@ -41,7 +41,7 @@
    - **数据修复已执行**：141 本 `originName` 对齐磁盘真名，1 本 `content://` 转裸路径，失败 0，复查幂等（复查 dryRun planned=0）
    - **删除入口**：详情页右上角菜单加回「删除书籍」（点开原删除 Sheet）
    - **API**：`/renameLocalBooks`（重写）、新增 `/importLocalFile`、`/scanLocalLibrary`、`/deleteLocalFiles`
-   - **仍待用户定**：6 条指向已消失文件的残留记录；2 个 Alice 孤儿 epub（内容相同、无书引用）
+   - **收尾清理（2026-10-07 已执行）**：删掉 6 条指向已消失文件的虚引用记录（各自在 novel 里都有文件仍在的另一条，删前逐条核对）+ 2 个 Alice 孤儿 epub（内容相同的重复下载、无书引用）；复查 281 本本地书路径 **MISSING 0**、novel 孤儿 0、内容重复组 0
 2. 🔄 **EPUB 无损阅读（实现完成，待端上验证）**：新增 `model/localBook/EpubWebDocument.kt`（原样取压缩包 XHTML + 资源流 + 主题 CSS 注入）与 `feature/reader/EpubWebContent.kt`（WebView + `shouldInterceptRequest` 拦截 `https://epub.local/*`）；`ReadBookRouteScreen` 里对 `book.isEpub` 覆盖一层 WebView（画布仍在下层，分页/首帧/章节状态机照旧）。
    - 进度：章节内位置 = 滚动比例 ×10000 写进 `durChapterPos`（`publish=false`，持久化读字段所以存得住）
    - 验证手段：**CDP**（debug 包已开 `WebView.setWebContentsDebuggingEnabled`）查 DOM/计算样式/图片解码，不用截图；脚本 `legado-work/verify_epub.py`
