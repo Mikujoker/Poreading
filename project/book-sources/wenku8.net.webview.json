@@ -1,13 +1,12 @@
 {
-  "bookSourceName": "轻小说文库(wenku8)·webView版v4【草案】",
+  "bookSourceName": "轻小说文库(wenku8)·webView版v5【草案】",
   "bookSourceGroup": "自建",
   "bookSourceUrl": "https://www.wenku8.net/index.php",
-  "bookSourceComment": "【草案 v4】修正 loginCheckJs：Legado 里 result 绑定的是响应对象(StrResponse)，不是正文，必须取 result.body（v3 写成 result.contains 导致 ScriptException，整次搜索挂掉）。另：取页必须 webView（CF 认浏览器指纹不认 cookie）；别挂梯子。",
+  "bookSourceComment": "【草案 v5】拿掉 loginCheckJs（v3/v4 两次都因 JS 细节把搜索打挂：result 是响应对象、body 还是方法而非属性；它只是登录检测，不该挡住搜索）。先让搜索/详情/目录/正文跑通，再回头用端上确认正确的 JS 写法。取页必须 webView；别挂梯子。",
   "enabled": true,
   "enabledCookieJar": true,
   "header": "{\"User-Agent\":\"Mozilla/5.0 (Linux; Android 16; 2201122C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36\",\"Referer\":\"https://www.wenku8.net/\"}",
   "loginUrl": "https://www.wenku8.net/login.php",
-  "loginCheckJs": "result != null && result.body.contains('退出登录')",
   "searchUrl": "/so.php,{\"method\":\"POST\",\"body\":\"searchtype=articlename&searchkey={{key}}&charset=gbk\",\"charset\":\"gbk\",\"webView\":true,\"webViewDelayTime\":3000}",
   "ruleSearch": {
     "bookList": "a[href^='/book/'][href$='.htm']:not(:has(img))",
