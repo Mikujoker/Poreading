@@ -1,24 +1,29 @@
 {
-  "bookSourceName": "轻小说文库(wenku8)·webView版v5【草案】",
+  "bookSourceName": "轻小说文库(wenku8)·webView版v11【草案】",
   "bookSourceGroup": "自建",
   "bookSourceUrl": "https://www.wenku8.net/index.php",
-  "bookSourceComment": "【草案 v5】拿掉 loginCheckJs（v3/v4 两次都因 JS 细节把搜索打挂：result 是响应对象、body 还是方法而非属性；它只是登录检测，不该挡住搜索）。先让搜索/详情/目录/正文跑通，再回头用端上确认正确的 JS 写法。取页必须 webView；别挂梯子。",
+  "bookSourceComment": "【草案 v11】搜索：/modules/article/search.php?searchkey=<GBK转义>&page={{page}}（GET+webView，必须登录；唯一命中会 302 到详情页，bookList 只匹配结果表格 div[style*=\"width:373px\"]，空列表走详情页兜底）。详情页 coverUrl 必须限定在信息块 #content div[style*=\"99%\"] 内——否则会连\"同类小说推荐\"的 9 张封面一起取到，拼成多行无效 URL → 封面加载失败 → 掉回默认封面。其余同 v10。",
   "enabled": true,
   "enabledCookieJar": true,
   "header": "{\"User-Agent\":\"Mozilla/5.0 (Linux; Android 16; 2201122C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36\",\"Referer\":\"https://www.wenku8.net/\"}",
   "loginUrl": "https://www.wenku8.net/login.php",
-  "searchUrl": "/so.php,{\"method\":\"POST\",\"body\":\"searchtype=articlename&searchkey={{key}}&charset=gbk\",\"charset\":\"gbk\",\"webView\":true,\"webViewDelayTime\":3000}",
+  "loginCheckJs": "result.body().indexOf('退出登录') >= 0 ? result : false",
+  "searchUrl": "/modules/article/search.php?searchkey={{(function(s){var b=new Packages.java.lang.String(s).getBytes(\"GBK\");var o=\"\";for(var i=0;i<b.length;i++){var v=b[i]&255;o+=\"%\"+(v<16?\"0\":\"\")+v.toString(16).toUpperCase();}return o;})(key)}}&page={{page}},{\"charset\":\"gbk\",\"webView\":true,\"webViewDelayTime\":3000}",
   "ruleSearch": {
-    "bookList": "a[href^='/book/'][href$='.htm']:not(:has(img))",
-    "name": "text",
-    "bookUrl": "href@js:result + ',{\"webView\":true,\"webViewDelayTime\":3000}'"
+    "bookList": "div[style*='width:373px']",
+    "name": "b>a@tiptitle",
+    "author": "p:contains(作者)@text##作者:([^/]*).*##$1",
+    "kind": "p:contains(Tags)@text##Tags:",
+    "intro": "p:contains(简介)@text##简介:",
+    "coverUrl": "img@src",
+    "bookUrl": "b>a@href@js:result + ',{\"webView\":true,\"webViewDelayTime\":3000}'"
   },
   "ruleBookInfo": {
     "name": "title@text##\\s*-.*",
     "author": "td:contains(小说作者)@text##小说作者：",
     "kind": "td:contains(文库分类)@text##文库分类：",
     "intro": "meta[name='description']@content",
-    "coverUrl": "img[src*='img.wenku8.com']@src",
+    "coverUrl": "#content div[style*='99%'] img[src*='img.wenku8.com']@src",
     "tocUrl": "a:contains(小说目录)@href@js:result + ',{\"webView\":true,\"webViewDelayTime\":3000}'"
   },
   "ruleToc": {

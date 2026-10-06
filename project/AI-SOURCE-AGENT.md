@@ -128,6 +128,28 @@ Legado 书源的规则是**按页面类型**分组的，这是整个系统的骨
   再用一次"真搜索 + 真取正文"的冒烟：书名能搜到、详情名作者非空、目录 ≥ N 章、
   正文非空且**不含站点 UI 词**（"关灯/字号/章节报错/上一章"这类，它们是选错容器最典型的症状）。
 
+**2026-10-07 端上验证接口（已落地，替代「点 ▶ + 截图」）**
+
+- 端口：fork 的 web 端口是 **1122**（`api.md` 里的 1234/1235 是上游示例）；**WS 版 `/bookSourceDebug` 在 webPort+1 = 1123**
+  （`WebService.kt: ktorServer?.startWebSocket(port + 1)`），所以连 1122 或 1235 都是 404。
+- 新增 **HTTP 版**：`POST /debugBookSource`，body `{"tag":"书源URL","key":"关键词|书籍URL|++目录URL|--章节URL","timeoutMs":120000}`，
+  返回 `{ok,timeout,elapsedMs,eventCount,error,events[{kind,elapsedMs,message}]}`；一次调用自己串完 搜索→详情→目录→正文。
+- `GET /getCookie?url=<urlencode>` 返回三层 cookie（`webViewCookie` / `jarCookie` / `dbCookie`），用来定位登录态断在哪一层。
+- 客户端：`python3 project/tools/book_debug.py --tag <源URL> --key <key> [--json] [--cookie <url>]`。
+  注意 `--key` 以 `--`/`++` 开头时必须写成 `--key=--https://...`，否则 argparse 会当成选项。
+- 判正文别只看首行：正文日志是 `└\n<正文>`（跨行），只取第一行会误判成"空"。
+
+**wenku8 搜索的三个反直觉点（2026-10-07 实测，纯数据改动、不用编译）**
+
+- **搜索必须登录**：未登录时 `search.php` 302 到 `login.php?do=submit&jumpurl=<搜索URL>`，拿到的是登录表单页。
+- **"唯一命中"会 302 到详情页**：只命中一篇文章时（如「文学少女」）直接 302 到 `/book/N.htm`，返回的 HTML 就是详情页。
+  宽选择器（`a[href^='/book/']`）会把详情页里「同类小说推荐」当搜索结果 —— 症状正是"搜出 9 本，偏偏没有我要的那本"。
+  正解：`bookList` 只匹配搜索结果表格 `div[style*='width:373px']`（实测：结果页 20 行 / 详情页 0 行）；
+  列表为空时 Legado 会**按详情页解析**兜底，正好得到那一本，`bookUrl` 取 302 后的地址。
+- 搜索结果行的**显示文本是截断的**，完整书名在 `tiptitle` 属性：`name` 用 `b>a@tiptitle`。
+- 另外：搜索 URL 用 `/modules/article/search.php?searchkey=<GBK转义>&page={{page}}`（GET + webView）；
+  别带 `searchtype=articlename`（实测那种形态返回 0 结果）。
+
 **⑤ 交付层（写回）**
 只写 patch 命中的字段 → 生成可导入 JSON → 人审 diff → 应用（app 内导入，或 Web API `/saveBookSources`）
 → 记录证据（before/after + 验证输出）。
