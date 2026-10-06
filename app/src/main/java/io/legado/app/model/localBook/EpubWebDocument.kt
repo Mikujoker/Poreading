@@ -120,8 +120,11 @@ object EpubWebDocument {
             }
             body p { margin: 0 0 ${paragraphSpacingPx}px !important; }
             body h1, body h2, body h3, body h4, body h5, body h6 { color: $foregroundHex !important; }
-            img, image, svg, video, table { max-width: 100% !important; }
-            img, image, video { height: auto !important; }
+            img, image, video { max-width: 100% !important; height: auto !important; }
+            /* epub 封面/扉页常是固定尺寸的 <svg><image>：不强制按宽度就会超宽并放大成"只有局部" */
+            svg { max-width: 100% !important; width: 100% !important; height: auto !important; }
+            svg image { width: 100% !important; height: 100% !important; }
+            table { max-width: 100% !important; }
             a { color: $accentHex !important; }
             """.trimIndent()
         )
@@ -160,7 +163,7 @@ object EpubWebDocument {
      * 把 viewport / 主题 CSS / 钩子脚本塞进原始 XHTML。
      * 钩子只做两件事：上报滚动比例（存进度）、到底时上报（续读下一章）。
      */
-    private fun inject(
+    internal fun inject(
         html: String,
         css: String,
         fragment: String?,
@@ -198,6 +201,16 @@ object EpubWebDocument {
             append("report();}")
             append("if(document.readyState==='complete'||document.readyState==='interactive'){jump();}")
             append("window.addEventListener('load',function(){jump();setTimeout(jump,400);});")
+            append("var sx=0,sy=0,moved=false;")
+            append("document.addEventListener('touchstart',function(e){var t=e.changedTouches[0];")
+            append("sx=t.clientX;sy=t.clientY;moved=false;},{passive:true});")
+            append("document.addEventListener('touchmove',function(e){var t=e.changedTouches[0];")
+            append("if(Math.abs(t.clientX-sx)>12||Math.abs(t.clientY-sy)>12)moved=true;},{passive:true});")
+            // 只上报"点击"（不是拖动）：拖动留给 WebView 自己滚动/缩放
+            append("document.addEventListener('touchend',function(e){var t=e.changedTouches[0];")
+            append("if(moved||!window.EpubHook)return;")
+            append("EpubHook.onTap(t.clientX/Math.max(1,window.innerWidth),")
+            append("t.clientY/Math.max(1,window.innerHeight));},{passive:true});")
             append("})()</script>")
         }
         val withHead = if (html.contains("</head>", true)) {

@@ -41,6 +41,8 @@ fun EpubWebContent(
     restoreFraction: Float,
     onScrollFraction: (Float) -> Unit,
     onReachBottom: () -> Unit,
+    /** 点击回调（归一化坐标）：中间呼菜单、左右翻章，由调用方决定语义。 */
+    onTap: (Float, Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -49,6 +51,7 @@ fun EpubWebContent(
     val currentCss = rememberUpdatedState(css)
     val currentScroll = rememberUpdatedState(onScrollFraction)
     val currentBottom = rememberUpdatedState(onReachBottom)
+    val currentTap = rememberUpdatedState(onTap)
     val restore = rememberUpdatedState(restoreFraction)
     val webViewRef = remember { arrayOfNulls<WebView>(1) }
 
@@ -72,8 +75,14 @@ fun EpubWebContent(
             WebView(ctx).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = false
-                settings.setSupportZoom(false)
-                settings.builtInZoomControls = false
+                // 关键：不开 wideViewport/overview —— 否则 epub 页面会被 WebView 放大数倍
+                // （表现为"几个字占满屏、拖不动"）。关掉后 CSS px ≈ sp，字号设置才是所见即所得。
+                settings.useWideViewPort = false
+                settings.loadWithOverviewMode = false
+                settings.textZoom = 100
+                // 双指缩放用 WebView 原生（不显示 +/- 控件）
+                settings.setSupportZoom(true)
+                settings.builtInZoomControls = true
                 settings.displayZoomControls = false
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
@@ -89,6 +98,11 @@ fun EpubWebContent(
                         @JavascriptInterface
                         fun onReachBottom() {
                             mainHandler.post { currentBottom.value() }
+                        }
+
+                        @JavascriptInterface
+                        fun onTap(x: Double, y: Double) {
+                            mainHandler.post { currentTap.value(x.toFloat(), y.toFloat()) }
                         }
                     },
                     JS_BRIDGE,

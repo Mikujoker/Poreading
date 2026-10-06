@@ -268,3 +268,22 @@
   `OpdsViewModel.kt`；路由 `MainRouteOpds` + `ROUTE_OPDS="opds"` + `MainNavGraph` entry + `MainIntent.createOpdsIntent`
   → 可用 `am start ... --es startRoute opds` 打开（无截图验证入口）
 - ⏳ 待补：把入口放进「我的」页（挨着"书源管理"）；UI 的**视觉验证**需解锁手机
+
+### EPUB 无损渲染：v1 UI 接入**已回退**（2026-10-06 深夜）
+**真机实测结论（有截图/日志证据）**
+- 取数层本身成立：`EpubWebDocument.chapterHtml()` 走通，WebView 里 `empty:false`（文档确实加载了），
+  章节 href 与压缩包真实条目一致（如 `cover.xhtml` / `1/OEBPS/info.xhtml`）
+- 失败的三个现象：① 页面被放大数倍（几个字占满屏）② 拖不动 / 不能缩放 ③ 菜单打不开（WebView 吃掉点击）
+- 改过一轮（`useWideViewPort=false` 关 overview、`svg/image` 强制按宽、开原生双指缩放、点击经 JS
+  `EpubHook.onTap` 回报）→ 复看变成**空白页**，说明"把 WebView 覆盖在自绘画布之上"这个接法不成立
+- CDP 也走不通：`Runtime.enable/Page.enable/DOM.getDocument/Runtime.evaluate` 全部超时（协议层活着但
+  renderer 不服务命令），所以只能靠截图 + logcat
+
+**下一步（换方案，别再覆盖）**
+1. 给 epub 做**独立阅读页**（WebView 独占内容区），不要和自绘画布叠加
+2. 手势归属要先解决：WebView 一旦拿到触摸，阅读器的点击区/翻页就全废 →
+   要么由 WebView 全权负责（JS `onTap/onScroll` 回报给 Kotlin：中=菜单、左/右=翻章），
+   要么在 WebView 上层放一个**只处理点击**的透明层（不消费拖动）
+3. 缩放/字号基准：明确 1 CSS px 与 sp 的换算（`useWideViewPort/loadWithOverviewMode` + `textZoom`）
+4. 保留物：`model/localBook/EpubWebDocument.kt`（单测 5/7；两个失败：`Uri.encode` 不能 JVM 跑、
+   `mimeOf` 缺 `epub` 映射）、`feature/reader/EpubWebContent.kt`
