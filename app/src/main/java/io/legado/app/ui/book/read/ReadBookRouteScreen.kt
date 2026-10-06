@@ -169,6 +169,14 @@ fun ReadBookRouteScreen(
     // begin 之前的空档，说明那部分耗时在本屏之外（导航宿主 / 共享转场层）。
     ReaderPerfTrace.marker("compose.screen.begin")
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // 本地 epub：整屏交给 Readium 原版排版（**独立页面，不叠加自绘画布** —— v1 就死在叠加接法上）
+    state.book?.takeIf { it.isEpub }?.let { epubBook ->
+        io.legado.app.feature.reader.readium.ReadiumReaderScreen(
+            book = epubBook,
+            modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+        )
+        return
+    }
     val readPreferences by viewModel.readPreferences.collectAsStateWithLifecycle()
     val markingState by viewModel.markingState.collectAsStateWithLifecycle()
     val readerRenderState by readerSessionViewModel.uiState.collectAsStateWithLifecycle()
