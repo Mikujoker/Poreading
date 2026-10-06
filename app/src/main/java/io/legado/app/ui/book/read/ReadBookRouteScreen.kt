@@ -173,6 +173,14 @@ fun ReadBookRouteScreen(
     state.book?.takeIf { it.isEpub }?.let { epubBook ->
         io.legado.app.feature.reader.readium.ReadiumReaderScreen(
             book = epubBook,
+            initialChapterIndex = state.durChapterIndex,
+            // 滚动模式（Readium 的连续滚动），字号跟随阅读设置
+            fontSizeSp = state.styleConfig.textSize.toDouble(),
+            // 翻到新章节就写回进度（章节级），下次打开续读
+            onProgress = { index ->
+                // ReadBook 的会话字段是 private set：外部只能走 VM 的语义化命令
+                viewModel.onIntent(ReadBookIntent.OpenChapter(index))
+            },
             modifier = androidx.compose.ui.Modifier.fillMaxSize(),
         )
         return
