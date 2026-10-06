@@ -613,9 +613,27 @@ class BookInfoViewModel(
                 }
                 book to source
             }.onSuccess {
-                it?.let { (book, source) -> upBook(book, source) }
+                it?.let { (book, source) ->
+                    // 库里的行才是权威：改名连源文件后立刻以它为准，
+                    // 否则 ON_RESUME 的刷新可能先用旧 URL 查空，把状态刷成「不在书架」
+                    inBookshelf = !book.isNotShelf
+                    upBook(book, source)
+                }
             }
         }
+    }
+
+    /**
+     * 改名连源文件后 bookUrl 变了：先把内存里的引用换成新 URL。
+     *
+     * 不换的话，从编辑页回来时的 ON_RESUME 刷新会拿旧 URL 查库（那一行已经搬到新 URL），
+     * 查不到就判成「不在书架」——详情页于是显示「放入书架」，看起来像书被踢出书架了。
+     */
+    fun onBookUrlChanged(newBookUrl: String) {
+        val book = currentBook ?: return
+        if (book.bookUrl == newBookUrl) return
+        currentBook = book.copy(bookUrl = newBookUrl)
+        syncUiState()
     }
 
     fun onTocResult(result: Triple<Int, Int, Boolean>?) {
@@ -1545,6 +1563,10 @@ class BookInfoViewModel(
                 )
             )
             BookInfoMenuAction.Edit -> openEdit()
+
+            // 右上角菜单里的删除：直接摊开删除 Sheet（和点底部「已在书架」同一条路），
+            // 是否真的删除交给 Sheet 里的确认，不受「删除前提醒」开关影响
+            BookInfoMenuAction.DeleteBook -> if (inBookshelf) setSheet(BookInfoSheet.ShelfDelete)
             BookInfoMenuAction.Share -> {
                 val bookJson = GSON.toJson(book)
                 emitEffect(

@@ -162,12 +162,12 @@ class BookInfoEditViewModel(
                 val oldBook = book.copy()
                 if (renameSourceFile) {
                     // 先把磁盘文件与库内引用一起搬过去（返回 null 表示没搬成，就只改书名）
-                    LocalBookRename.rename(oldBook, currentState.name)?.let { newUrl ->
-                        book.bookUrl = newUrl
-                        renamedBookUrl = newUrl
-                        // 库里的 originName 已被迁移改成新文件名，内存这份必须跟上：
-                        // 否则下面 update(book) 会把整行写回，把旧文件名（乱码）又盖回去
-                        book.originName = java.io.File(newUrl).name
+                    LocalBookRename.rename(oldBook, currentState.name)?.let { result ->
+                        book.bookUrl = result.bookUrl
+                        renamedBookUrl = result.bookUrl
+                        // originName 要用搬移结果里的真文件名：SAF 书的 URL 是 content://…，
+                        // File(url).name 会得到 URL 编码串（"primary%3ADownload%2F…"），详情页就会显示这堆垃圾
+                        book.originName = result.fileName
                     }
                 }
                 book.name = currentState.name
@@ -188,7 +188,8 @@ class BookInfoEditViewModel(
                 applyTagGroupRulesForBook(book)
                 BookHelp.updateCacheFolder(oldBook, book)
 
-                if (ReadBook.isCurrentBook(book.bookUrl)) {
+                // 改过名的书 URL 已经变了，要用旧 URL 判断「是不是正在读的这本」
+                if (ReadBook.isCurrentBook(oldBook.bookUrl) || ReadBook.isCurrentBook(book.bookUrl)) {
                     ReadBook.replaceCurrentBook(book)
                 }
                 bookRepository.update(book)

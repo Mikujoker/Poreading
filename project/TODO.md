@@ -34,7 +34,14 @@
 - **E1** release 构建 → `legado-work/rel.apk` 33MB（debug 106MB），release 变体 minify + 签名齐备
 
 **要做（用户已确认，其余已从需求删除）**
-1. ✅ **本地书文件治理 已完成**（2026-10-06）：C1 用新增的 `POST /renameLocalBooks` 把 **141 本**乱码书名搬到 `Download/legado/novel/<书名><ext>` 并同步 DB（路径含乱码 134 → **0**，清理历史重复 136 条，进度保留）；C2 **本来就有**（`help/book/LocalBookRename.kt` + 编辑页会问"要不要连磁盘源文件一起改名"）；C3-C6 用户说"视情况"（Browser 目录还剩 79 个孤立文件）
+1. ✅ **本地书文件治理 第二轮完成**（2026-10-07）：
+   - **导入即搬移**：本地文件导入时直接搬到 `Download/legado/novel/<书名><ext>`（不再"拷一份副本、源文件原地不动"），`bookUrl` 记裸路径；`LocalBook.importFile` 统一入口，`FileAssociationActivity` 里那套"拷进默认书目录"删掉
+   - **改名连源文件**：`LocalBookRename` 重写为「搬移 → 库内引用迁移 → 删源」，`books.bookUrl` 是主键，迁移走 `help/book/BookUrlMigration.kt`（查 schema 平移所有 `bookUrl`/外键引用表）
+   - **修掉的 bug**：① `getLocalUri()` 的自动重绑原来用 `delete+insert`，`chapters` 外键 ON DELETE CASCADE 会把整本目录删掉 → 改成真迁移；② SAF 书改名后 `originName = File(content://…).name` 写进 URL 编码垃圾，详情页文件名显示不对 → 用搬移结果里的真文件名；③ 改名后详情页显示「放入书架」（`refreshShelfState` 拿旧 URL 查库查空 + `onInfoEdited` 不回写 `inBookshelf`）→ `onBookUrlChanged` 同步内存 URL
+   - **数据修复已执行**：141 本 `originName` 对齐磁盘真名，1 本 `content://` 转裸路径，失败 0，复查幂等（复查 dryRun planned=0）
+   - **删除入口**：详情页右上角菜单加回「删除书籍」（点开原删除 Sheet）
+   - **API**：`/renameLocalBooks`（重写）、新增 `/importLocalFile`、`/scanLocalLibrary`、`/deleteLocalFiles`
+   - **仍待用户定**：6 条指向已消失文件的残留记录；2 个 Alice 孤儿 epub（内容相同、无书引用）
 2. 🔄 **EPUB 无损阅读（实现完成，待端上验证）**：新增 `model/localBook/EpubWebDocument.kt`（原样取压缩包 XHTML + 资源流 + 主题 CSS 注入）与 `feature/reader/EpubWebContent.kt`（WebView + `shouldInterceptRequest` 拦截 `https://epub.local/*`）；`ReadBookRouteScreen` 里对 `book.isEpub` 覆盖一层 WebView（画布仍在下层，分页/首帧/章节状态机照旧）。
    - 进度：章节内位置 = 滚动比例 ×10000 写进 `durChapterPos`（`publish=false`，持久化读字段所以存得住）
    - 验证手段：**CDP**（debug 包已开 `WebView.setWebContentsDebuggingEnabled`）查 DOM/计算样式/图片解码，不用截图；脚本 `legado-work/verify_epub.py`

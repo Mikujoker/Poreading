@@ -1127,6 +1127,12 @@ private fun BookInfoOverflowMenu(
             onClick = { onMenuAction(BookInfoMenuAction.TogglePrivate) },
             isSelected = state.bookPrivate
         )
+        if (state.inBookshelf) {
+            RoundDropdownMenuItem(
+                text = stringResource(R.string.book_menu_delete),
+                onClick = { onMenuAction(BookInfoMenuAction.DeleteBook) }
+            )
+        }
     }
 }
 

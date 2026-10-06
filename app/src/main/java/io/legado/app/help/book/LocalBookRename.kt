@@ -1,194 +1,135 @@
 package io.legado.app.help.book
 
-import io.legado.app.data.appDb
 import io.legado.app.constant.AppLog
+import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
+import io.legado.app.model.ReadBook
 import io.legado.app.utils.printOnDebug
 import io.legado.app.utils.toastOnUi
-import splitties.init.appCtx
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import splitties.init.appCtx
 import java.io.File
 
 /**
- * 本地书改名时，把磁盘文件与库内引用一起改名。
+ * 本地书改名：把文件落到书库目录（Download/legado/novel）并按书名改名，库内引用一起搬。
  *
- * 「书 URL」在本地书上就是文件路径，所以改文件名 = 改主键：**所有按 bookUrl 挂的表都必须一起搬**，
- * 漏一张就掉一份数据（章节缓存、书签、划线、AI 产物…）。这里不手列表名，而是查 schema，
- * 把所有含 bookUrl 列的表都平移一遍 —— 以后新加表也不会漏。
+ * 「书 URL」在本地书上就是文件路径，所以改文件名 = 改主键：所有按 bookUrl 挂的表都要搬，
+ * 见 [BookUrlMigration]。
  *
- * 另有几张表是按「书名 + 作者」聚合的（书签、阅读时长），改名后要同步改，否则会脱钩。
+ * 顺序是「先把文件放到位 → 再搬库 → 最后删源」：[LocalLibrary.PendingMove] 保证任一步失败都能回退，
+ * 不会留下「文件在 A、库指向 B」的烂摊子。
  */
 object LocalBookRename {
 
-    private val illegalChars = Regex("""[\\/:*?"<>|\n\r\t]""")
+    data class Result(val bookUrl: String, val fileName: String)
 
     /**
-     * 把 [book] 对应的磁盘文件改名为 [newName]（保留原扩展名），并搬迁库内引用。
+     * 把 [book] 的文件改名成 [newName]（落到书库目录），并搬迁库内引用。
      *
-     * @return 新的 bookUrl；文件不存在 / 已是同名 / 目标已存在 / 重命名失败时返回 null（调用方不要改库）
+     * @return 新的 bookUrl 与文件名；源文件不存在 / 目标重名 / 搬移或迁移失败时返回 null（调用方别改库）
      */
-    suspend fun rename(book: Book, newName: String): String? = withContext(Dispatchers.IO) {
-        val oldUrl = book.bookUrl
-        val oldFile = File(oldUrl)
-        // 只处理「裸路径指向真实文件」的本地书；SAF 之类一律不动
-        // SAF（content://）导入的本地书：裸路径判断会直接跳过，这里自己改名并搬迁库内引用
-        if (oldUrl.startsWith("content://")) {
-            val context = appCtx
-            val uri = android.net.Uri.parse(oldUrl)
-            val safeName = illegalChars.replace(newName.trim(), "_").take(80)
-            if (safeName.isBlank()) return@withContext bail("新书名为空")
-            val doc = androidx.documentfile.provider.DocumentFile.fromSingleUri(context, uri)
-                ?: androidx.documentfile.provider.DocumentFile.fromTreeUri(context, uri)
-                ?: return@withContext bail("打不开 SAF 文档：$oldUrl")
-            val oldFileName = doc.name ?: return@withContext bail("拿不到 SAF 文档名：$oldUrl")
-            val safExtension = oldFileName.substringAfterLast('.', "")
-            val newFileName = if (safExtension.isBlank()) safeName else "$safeName.$safExtension"
-            if (newFileName == oldFileName) return@withContext null
-            val renamed = runCatching {
-                android.provider.DocumentsContract.renameDocument(
-                    context.contentResolver,
-                    uri,
-                    newFileName,
-                )
-            }.getOrNull() ?: return@withContext bail("SAF 改名失败：$oldFileName → $newFileName")
-            val newUrl = renamed.toString()
-            runCatching {
-                migrateReferences(oldUrl, newUrl, newFileName, book.name, newName.trim(), book.author)
-            }.onFailure {
-                it.printOnDebug()
-                runCatching {
-                    android.provider.DocumentsContract.renameDocument(
-                        context.contentResolver,
-                        renamed,
-                        oldFileName,
-                    )
-                }
-                AppLog.put("改名连源文件失败（SAF，库未搬迁，文件名已改回）：$it", it, true)
-                return@withContext null
-            }
-            return@withContext newUrl
-        }
-        // 只处理「裸路径指向真实文件」的本地书；SAF 之类一律不动
-        if (!oldFile.isFile) return@withContext bail("源文件不存在或不可读：$oldUrl")
-
-        val safeName = illegalChars.replace(newName.trim(), "_").take(80)
+    suspend fun rename(book: Book, newName: String): Result? = withContext(Dispatchers.IO) {
+        val safeName = LocalLibrary.sanitize(newName)
         if (safeName.isBlank()) return@withContext bail("新书名为空")
-        val extension = oldFile.name.substringAfterLast('.', "")
-        val newFileName = if (extension.isBlank()) safeName else "$safeName.$extension"
-        val newFile = File(oldFile.parentFile, newFileName)
-        if (newFile.absolutePath == oldFile.absolutePath) return@withContext null
-        if (newFile.exists()) return@withContext bail("目标文件名已被占用：$newFileName")
-
-        var moved = oldFile.renameTo(newFile)
-        if (!moved) {
-            // 共享存储（FUSE）上 rename 会偶发失败，退化成「拷贝 + 删原文件」
-            moved = runCatching {
-                oldFile.copyTo(newFile, overwrite = false)
-                oldFile.delete()
-                true
-            }.getOrDefault(false)
-            if (moved) AppLog.put("改名：rename 失败，已退化为拷贝+删除（$newFileName）")
+        val oldUrl = book.bookUrl
+        val source = LocalLibrary.docOf(oldUrl) ?: return@withContext bail("读不到本地书：$oldUrl")
+        val sourceFile = LocalLibrary.barePathOf(source)?.let(::File)?.takeIf(File::isFile)
+        if (sourceFile == null && !oldUrl.startsWith("content://")) {
+            return@withContext bail("源文件不存在或不可读：$oldUrl")
         }
-        if (!moved) return@withContext bail("文件改名失败：${oldFile.name} → $newFileName")
+        val (_, ext) = LocalLibrary.splitExtension(source.name)
+        val target = LocalLibrary.exactTarget(safeName, ext)
+        if (target.absolutePath == sourceFile?.absolutePath) {
+            // 文件已在书库目录、名字也对：只把库内 URL / originName 对齐
+            //（SAF 书在这里顺带换成裸路径，之后才享受得到「同卷 rename 秒改」）
+            if (!alignReferences(book, oldUrl, target.absolutePath, target.name)) {
+                return@withContext bail("库搬迁失败")
+            }
+            return@withContext Result(target.absolutePath, target.name)
+        }
+        // 手动改名要确定性：目标被别本书占着就说清楚，不偷偷加序号
+        if (target.exists()) return@withContext bail("书库目录里已有同名文件：${target.name}")
 
-        val newUrl = newFile.absolutePath
-        val oldName = book.name
-        val author = book.author
-        runCatching {
-            migrateReferences(oldUrl, newUrl, newFileName, oldName, newName.trim(), author)
+        val pending = LocalLibrary.stage(source, target)
+            ?: return@withContext bail("文件搬移失败：${source.name}")
+        val newUrl = target.absolutePath
+        val migrated = runCatching {
+            BookUrlMigration.migrate(
+                db = appDb.openHelper.writableDatabase,
+                oldUrl = oldUrl,
+                newUrl = newUrl,
+                newOriginName = target.name,
+                oldName = book.name,
+                newName = safeName,
+                author = book.author,
+            )
         }.onFailure {
-            // 库没搬成功就把文件改回去，不能留一个「文件在 A、库指向 B」的烂摊子
             it.printOnDebug()
-            newFile.renameTo(oldFile)
-            AppLog.put("改名连源文件失败（库未搬迁，文件已改回）：$it", it, true)
-            runCatching { appCtx.toastOnUi("源文件已改回（库搬迁失败）") }
-            return@withContext null
+            AppLog.put("改名连源文件失败（库未搬迁，已回退）：$it", it, true)
+            pending.rollback()
+        }.isSuccess
+        if (!migrated) return@withContext bail("库搬迁失败，文件已改回")
+
+        if (!pending.commit()) {
+            AppLog.put("改名：源文件未删除（权限不足），书库副本已保留 ${target.name}")
         }
-        newUrl
+        syncLocalUriCache(oldUrl, newUrl)
+        syncReadBook(oldUrl, newUrl, target.name)
+        Result(newUrl, target.name)
+    }
+
+    /**
+     * 只对齐引用，不动文件：URL（含 SAF → 裸路径）/ originName / 缓存 / 阅读会话。
+     * @return 是否成功；迁移失败返回 false
+     */
+    fun alignReferences(book: Book, oldUrl: String, newUrl: String, fileName: String): Boolean {
+        if (oldUrl == newUrl && book.originName == fileName) return true
+        val ok = runCatching {
+            BookUrlMigration.migrate(
+                db = appDb.openHelper.writableDatabase,
+                oldUrl = oldUrl,
+                newUrl = newUrl,
+                newOriginName = fileName,
+                oldName = book.name,
+                newName = book.name,
+                author = book.author,
+            )
+        }.onFailure {
+            it.printOnDebug()
+            AppLog.put("改名连源文件失败（只对齐引用）：$it", it, true)
+        }.isSuccess
+        if (!ok) return false
+        syncLocalUriCache(oldUrl, newUrl)
+        syncReadBook(oldUrl, newUrl, fileName)
+        return true
     }
 
     /** 放弃改名时不要静默：写日志，并给用户一句可见的反馈。 */
-    private fun bail(reason: String): String? {
+    private fun bail(reason: String): Result? {
         AppLog.put("改名连源文件跳过：$reason")
         runCatching { appCtx.toastOnUi("源文件未改名：$reason") }
         return null
     }
 
-    private fun migrateReferences(
-        oldUrl: String,
-        newUrl: String,
-        newFileName: String,
-        oldName: String,
-        newName: String,
-        author: String,
-    ) {
-        val db = appDb.openHelper.writableDatabase
-        val allTables = mutableListOf<String>()
-        db.query("select name from sqlite_master where type = 'table'").use { cursor ->
-            while (cursor.moveToNext()) allTables += cursor.getString(0)
-        }
-        // 有表用外键指向 books(bookUrl) 且 ON UPDATE NO ACTION（chapters.bookUrl、
-        // exact_chapter_page_counts.bookId 都是），改父键必然违反约束：
-        // 迁移期间关掉外键检查，搬完再用 foreign_key_check 自证没有悬空引用。
-        db.execSQL("PRAGMA foreign_keys = OFF")
-        db.beginTransaction()
-        try {
-            // 1) books 自己
-            db.execSQL(
-                "update books set bookUrl = ?, originName = ? where bookUrl = ?",
-                arrayOf(newUrl, newFileName, oldUrl),
-            )
-            // 2) 所有含 bookUrl 列的表
-            val bookUrlTables = mutableListOf<String>()
-            db.query(
-                """select m.name from sqlite_master m
-                   where m.type = 'table'
-                   and exists (select 1 from pragma_table_info(m.name) p where p.name = 'bookUrl')"""
-            ).use { cursor ->
-                while (cursor.moveToNext()) bookUrlTables += cursor.getString(0)
-            }
-            bookUrlTables.filter { it != "books" }.forEach { table ->
-                db.execSQL("update `$table` set bookUrl = ? where bookUrl = ?", arrayOf(newUrl, oldUrl))
-            }
-            // 3) 按外键元数据找「引用 books(bookUrl) 但列名不叫 bookUrl」的表（例如 exact_chapter_page_counts.bookId）
-            allTables.filter { it != "books" && !it.startsWith("sqlite_") }.forEach { table ->
-                val refs = mutableListOf<String>()
-                db.query("pragma foreign_key_list(`$table`)").use { cursor ->
-                    while (cursor.moveToNext()) {
-                        val refTable = cursor.getString(2)
-                        val fromColumn = cursor.getString(3)
-                        val toColumn = cursor.getString(4)
-                        if (refTable == "books" && toColumn == "bookUrl") refs += fromColumn
-                    }
-                }
-                refs.filter { it != "bookUrl" }.forEach { column ->
-                    db.execSQL(
-                        "update `$table` set `$column` = ? where `$column` = ?",
-                        arrayOf(newUrl, oldUrl),
-                    )
-                }
-            }
-            // 4) 按书名聚合的表（书签、阅读会话）改名后要跟上
-            db.execSQL("update bookmarks set bookName = ? where bookUrl = ?", arrayOf(newName, newUrl))
-            db.execSQL(
-                "update readRecordSession set bookName = ? where bookUrl = ?",
-                arrayOf(newName, newUrl),
-            )
-            db.execSQL(
-                "update readRecordDetail set bookName = ? where bookName = ? and bookAuthor = ?",
-                arrayOf(newName, oldName, author),
-            )
-            // 自证：搬完不能留悬空引用
-            val dangling = mutableListOf<String>()
-            db.query("PRAGMA foreign_key_check").use { cursor ->
-                while (cursor.moveToNext()) dangling += "${cursor.getString(0)}#${cursor.getLong(1)}"
-            }
-            check(dangling.isEmpty()) { "迁移后外键校验失败：$dangling" }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
-            runCatching { db.execSQL("PRAGMA foreign_keys = ON") }
+    /**
+     * bookUrl 变了，`URL → 打开用的 Uri` 缓存必须作废：否则还会拿旧 Uri 去读，
+     * 表现成「文件不存在 / 目录出错」。
+     */
+    fun syncLocalUriCache(oldUrl: String, newUrl: String) {
+        clearLocalUriCache(oldUrl)
+        clearLocalUriCache(newUrl)
+    }
+
+    /** 正在读这本书时要换成新 URL：阅读会话还按旧 URL 校验章节输入，不换就会一直拒收。 */
+    private fun syncReadBook(oldUrl: String, newUrl: String, fileName: String) {
+        runCatching {
+            if (!ReadBook.isCurrentBook(oldUrl)) return
+            val current = ReadBook.book ?: return
+            ReadBook.replaceCurrentBook(current.copy(bookUrl = newUrl, originName = fileName))
+        }.onFailure {
+            it.printOnDebug()
+            AppLog.put("改名：阅读会话未跟上新路径（$newUrl）", it)
         }
     }
 }

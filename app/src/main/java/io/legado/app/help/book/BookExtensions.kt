@@ -215,13 +215,21 @@ fun Book.getLocalUri(): Uri {
                     return fileDoc.uri
                 }
                 appDb.runInTransaction {
-
                     if (oldBook.bookUrl == newBookUrl) {
                         save()
                     } else {
-                        val newBook = oldBook.copy(bookUrl = newBookUrl)
-                        appDb.bookDao.replace(oldBook, newBook)
-                        BookHelp.updateCacheFolder(oldBook, newBook)
+                        // 只搬 URL 引用，不能 delete + insert：chapters 外键是 ON DELETE CASCADE，
+                        // 删旧行会把整本目录一起删掉（历史 bug：自动重绑后目录变空）
+                        BookUrlMigration.migrate(
+                            db = appDb.openHelper.writableDatabase,
+                            oldUrl = oldBook.bookUrl,
+                            newUrl = newBookUrl,
+                            newOriginName = fileDoc.name,
+                            oldName = oldBook.name,
+                            newName = oldBook.name,
+                            author = oldBook.author,
+                        )
+                        BookHelp.updateCacheFolder(oldBook, oldBook.copy(bookUrl = newBookUrl))
                         this.bookUrl = newBookUrl
                     }
                 }
@@ -251,9 +259,18 @@ fun Book.getLocalUri(): Uri {
                 if (oldBook.bookUrl == newBookUrl) {
                     save()
                 } else {
-                    val newBook = oldBook.copy(bookUrl = newBookUrl)
-                    appDb.bookDao.replace(oldBook, newBook)
-                    BookHelp.updateCacheFolder(oldBook, newBook)
+                    // 只搬 URL 引用，不能 delete + insert：chapters 外键是 ON DELETE CASCADE，
+                    // 删旧行会把整本目录一起删掉（历史 bug：自动重绑后目录变空）
+                    BookUrlMigration.migrate(
+                        db = appDb.openHelper.writableDatabase,
+                        oldUrl = oldBook.bookUrl,
+                        newUrl = newBookUrl,
+                        newOriginName = fileDoc.name,
+                        oldName = oldBook.name,
+                        newName = oldBook.name,
+                        author = oldBook.author,
+                    )
+                    BookHelp.updateCacheFolder(oldBook, oldBook.copy(bookUrl = newBookUrl))
                     this.bookUrl = newBookUrl
                 }
             }
@@ -282,6 +299,11 @@ fun Book.cacheLocalUri(uri: Uri) {
 }
 
 fun Book.removeLocalUriCache() {
+    localUriCache.remove(bookUrl)
+}
+
+/** URL 变了但手上没有 Book 实例时作废缓存（改名连源文件会用到）。 */
+fun clearLocalUriCache(bookUrl: String) {
     localUriCache.remove(bookUrl)
 }
 

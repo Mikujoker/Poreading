@@ -24,6 +24,7 @@ import io.legado.app.domain.gateway.ReadSettingsGateway
 import io.legado.app.help.AppWebDav
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.ContentProcessor
+import io.legado.app.help.book.LocalLibrary
 import io.legado.app.help.book.addType
 import io.legado.app.help.book.archiveName
 import io.legado.app.help.book.cacheLocalUri
@@ -56,6 +57,7 @@ import io.legado.app.utils.isAbsUrl
 import io.legado.app.utils.isContentScheme
 import io.legado.app.utils.isDataUrl
 import io.legado.app.utils.printOnDebug
+import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.runBlocking
 import org.apache.commons.text.StringEscapeUtils
@@ -248,16 +250,23 @@ object LocalBook {
     fun importFile(uri: Uri): Book {
         val input = FileDoc.fromUri(uri, false)
         if (input.isDir) return importMangaDirectory(input)
-        val bookUrl: String
-        //updateTime变量不要修改,否则会导致读取不到缓存
-        val (fileName, _, _, updateTime, _) = FileDoc.fromUri(uri, false).apply {
-            if (size == 0L) throw EmptyFileException("Unexpected empty File")
-
-            bookUrl = toString()
+        // 本地书统一住书库目录（Download/legado/novel）、文件名 = 书名：源在别处就先搬进来再建书，
+        // 这样库里那本就是要读的文件本身，不会再留一份「下载目录里的原文件 + 书库里的副本」
+        val nameAuthor = analyzeNameAuthor(input.name)
+        val landed = LocalLibrary.land(input, nameAuthor.first)
+        if (landed != null && !landed.sourceRemoved) {
+            runCatching {
+                appCtx.toastOnUi("已放到书库目录：${landed.file.name}\n原文件删不掉，可手动清理")
+            }
         }
+        val file = landed?.let { FileDoc.fromFile(it.file.absolutePath) } ?: input
+        if (file.size == 0L) throw EmptyFileException("Unexpected empty File")
+        val bookUrl = file.toString()
+        val fileName = file.name
+        val updateTime = file.lastModified
+        //updateTime变量不要修改,否则会导致读取不到缓存
         var book = appDb.bookDao.getBook(bookUrl)
         if (book == null) {
-            val nameAuthor = analyzeNameAuthor(fileName)
             book = Book(
                 type = BookType.text or BookType.local,
                 bookUrl = bookUrl,

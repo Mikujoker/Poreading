@@ -149,6 +149,9 @@ class KtorServer(private val port: Int) {
                 post("/fillLoginFields") { handlePost { SourceRepairApiController.fillLoginFields(it) } }
                 post("/fillAllLoginFields") { handlePost { SourceRepairApiController.fillAllLoginFields(it) } }
                 post("/renameLocalBooks") { handlePost { LocalBookApiController.renameLocalBooks(it) } }
+                post("/importLocalFile") { handlePost { LocalBookApiController.importLocalFile(it) } }
+                post("/scanLocalLibrary") { handlePost { LocalBookApiController.scanLocalLibrary(it) } }
+                post("/deleteLocalFiles") { handlePost { LocalBookApiController.deleteLocalFiles(it) } }
                 post("/saveAiProfile") { handlePost { AiProfileController.saveDefaultChat(it) } }
                 get("/getAiProfile") { handleGet { AiProfileController.getDefaultChat() } }
                 get("/verifyLogin") { handleGet { SourceDebugController.verifyLogin(it) } }

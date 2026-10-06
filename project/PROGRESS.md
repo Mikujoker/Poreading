@@ -174,3 +174,49 @@
 - 资源 `assets/coverArt/kazusa-shanshui.png`（480x645，128 KB）
 - 书名用手写楷体（霞鹜文楷），字号按长度分档，断行沿用 `balancedTitleLines`
 - 印章只在有作者时画
+
+## 2026-10-07 本地书文件治理（导入即搬移 / 改名连源文件）
+
+### 用户报的三个现象与真实根因
+
+| 现象 | 根因 |
+|---|---|
+| "导入后 novel 里是副本，原文件名字没改" | `FileAssociationActivity` 的导入逻辑是「把源文件**拷**进默认书目录」，源文件原地不动（默认书目录被设成 `…/tree/primary%3ADownload%2Flegado%2Fnovel`） |
+| "改名连源文件后，详情页文件名不对" | SAF 分支改名成功，但 `BookInfoEditViewModel` 用 `File(newUrl).name` 取文件名 —— `newUrl` 是 `content://…/document/primary%3ADownload%2F…`，取出来是 URL 编码串，写回 `originName`，详情页就显示这堆垃圾 |
+| "莫名要重新加入书架 / 打不开、目录内容出错" | `Book.getLocalUri()` 读不到旧 URL 时会「按 originName 找同名文件 + `bookDao.replace()` 重绑」——`replace` 是 delete+insert，而 `chapters.bookUrl` 外键是 `ON DELETE CASCADE`，**整本目录被静默删掉**；同时 `localUriCache`/`ReadBook` 还握着旧 URL（`ReadBook` 里 `book?.bookUrl != input.book.bookUrl` 会直接拒收章节输入） |
+
+### 改了什么
+
+- **新增** `help/book/LocalLibrary.kt`：书库目录（`Download/legado/novel`）、文件名安全化、重名退让、
+  `stage()` 返回可 `commit`/`rollback` 的在途搬移（同卷 `renameTo` 秒改；跨卷/权限不足退化为拷贝，**库搬完才删源**）
+- **新增** `help/book/BookUrlMigration.kt`：`books.bookUrl` 是主键，改文件名 = 改主键；查 schema 把所有
+  `bookUrl` 列 + 外键指向 `books(bookUrl)` 的表一起平移（含 `exact_chapter_page_counts.bookId`），
+  书签/阅读记录按「书名+作者」跟着改；事务内用 `defer_foreign_keys`（嵌套时）/ `foreign_keys=OFF`（独立时）
+- **改** `LocalBook.importFile`：先按解析出的书名把文件搬进书库目录，再建书（`bookUrl` 记裸路径）
+- **删** `FileAssociationActivity` 里"拷进默认书目录"整套逻辑与选目录面板
+- **改** `LocalBookRename`：搬移 → 迁移 → 删源；改名后作废 `localUriCache`、同步 `ReadBook` 的 URL
+- **改** `BookExtensions.getLocalUri()` 两处自动重绑：`delete+insert` → `BookUrlMigration`（不再 CASCADE 删目录）
+- **改** `BookInfoEditViewModel`：`originName` 用搬移结果的真文件名；`ReadBook` 用旧 URL 判断
+- **改** `BookInfoViewModel` + `BookInfoRouteScreen`：`onBookUrlChanged` 同步内存 URL、`onInfoEdited` 回写 `inBookshelf`
+  （修「改名后显示放入书架」的竞态：ON_RESUME 刷新会拿旧 URL 查库查空）
+- **加** 详情页右上角菜单「删除书籍」（用户要求加回，点开原 `ShelfDeleteSheet`）
+- **API**：重写 `/renameLocalBooks`（含 content:// 书、originName 对齐、dryRun 计划），新增
+  `/importLocalFile`、`/scanLocalLibrary`、`/deleteLocalFiles`
+
+### 验证（端上实测，不靠"感觉"）
+
+- 导入：`Download/Browser/soushu2025.com@搬移测试[搜书吧].txt` 经"打开方式"导入 → 源文件消失、
+  落在 `novel/`、`bookUrl` 裸路径、章节已解析
+- 改名：UI 里把《女侠且绿》改名（选「一起改」）→ 详情页「已在书架」+ 文件名 `UITestBook.txt`；
+  章节表仍 16 行、进度 `durChapterIndex=12/durChapterPos=12021` 保留、旧文件消失/新文件在（测试后已还原书名）
+- 善后 API 执行：`originNameAligned=141`、`moveIntoLibrary=1`、`failed=0`，复查 dryRun `planned=0`
+- 办法：`uiautomator dump` 拿坐标自己点 UI（`am start` 以 shell 身份发 content:// 会被系统
+  `SecurityException` 拒，改 `file://` 或 intent 路由 `--es startRoute book/info --es bookUrl`）
+
+### 踩的坑
+
+1. 设备上装的是 `noR8` 变体（`versionName=…-noR8`、`isDebuggable` 继承 release = false）→ `run-as` 不可用；
+   临时给 `noR8` 加 `isDebuggable = true` 出取证包读完 DB，提交前已还原
+2. `adb` 是 Windows 侧 exe（WSL wrapper），`/tmp` 路径它看不见 → push/pull 一律用 `C:\…` 或
+   `cd /mnt/c/...` 后的相对路径
+3. 设备 shell 里带中文/GBK 的 `ls|grep`/`find -name` 不可靠 → 让脚本把结果写文件再 pull 回来分析

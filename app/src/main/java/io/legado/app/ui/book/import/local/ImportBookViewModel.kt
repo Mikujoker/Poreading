@@ -579,6 +579,8 @@ class ImportBookViewModel(
             _effects.tryEmit(ImportBookEffect.ShowToast("添加书架失败，请尝试重新选择文件夹"))
             AppLog.put("添加书架失败\n${it.localizedMessage}", it)
         }.onSuccess {
+            // 导入会把文件搬进书库目录并按书名改名，列表要刷新才不会拿着旧路径再点一次
+            refreshCurrentSource()
             _effects.tryEmit(ImportBookEffect.ShowToast("添加书架成功"))
         }.onFinally {
             clearSelection()
@@ -594,6 +596,8 @@ class ImportBookViewModel(
             _effects.tryEmit(ImportBookEffect.ShowToast("添加书架失败，请重新选择书籍文件"))
             AppLog.put("添加书架失败\n${it.localizedMessage}", it)
         }.onSuccess {
+            // 导入会把文件搬进书库目录并按书名改名，列表要刷新才不会拿着旧路径再点一次
+            refreshCurrentSource()
             _effects.tryEmit(ImportBookEffect.ShowToast("添加书架成功"))
         }
     }
@@ -606,6 +610,8 @@ class ImportBookViewModel(
             _effects.tryEmit(ImportBookEffect.ShowToast("添加书架失败，请尝试重新选择文件夹"))
             AppLog.put("添加书架失败\n${it.localizedMessage}", it)
         }.onSuccess {
+            // 导入会把文件搬进书库目录并按书名改名，列表要刷新才不会拿着旧路径再点一次
+            refreshCurrentSource()
             _effects.tryEmit(ImportBookEffect.ShowToast("添加书架成功"))
         }.onFinally {
             _state.update { state ->

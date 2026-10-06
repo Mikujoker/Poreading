@@ -152,7 +152,11 @@ fun BookInfoRouteScreen(
             val renamedUrl = it.data
                 ?.getStringExtra(BookInfoEditActivity.EXTRA_NEW_BOOK_URL)
                 ?.takeIf(String::isNotBlank)
-            renamedUrl?.let { new -> currentBookUrl = new }
+            renamedUrl?.let { new ->
+                currentBookUrl = new
+                // 内存引用同步换掉，紧接着的 ON_RESUME 刷新才查得到这本
+                viewModel.onBookUrlChanged(new)
+            }
             viewModel.onInfoEdited(renamedUrl)
         }
     }
