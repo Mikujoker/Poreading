@@ -136,9 +136,14 @@ A1「书源管理」按用户最终口径重写完成并**装机验证**：三�
 | 8 | 米纸·棉絮 | `kazusa-paper-cotton.jpg` | 暖褐 |
 | 9 | 米纸·深蓝 | `kazusa-paper-fiber.jpg` | `kazusa-night-blue.jpg` |
 
-- 纸纹由 `scripts/gen-paper-texture.py` 生成（改参数重跑即可，输出直接写进 `assets/bg/`）
-- 配方 = 受光渐变 + 帘纹 + 纤维 + 棉絮云纹 + 颗粒，**1264x2780**（用户手机真实分辨率，
+- 纸纹由 `project/scripts/gen-paper-texture.py` 生成（改参数重跑即可，直接写进 `assets/bg/`；
+  脚本落盘后会**回读 JPEG 自检**，亮峰/孤立亮斑超限直接失败）
+- 配方 = 受光渐变 + 均匀帘纹 + 棉絮云纹 + 相关噪声颗粒，**1264x2780**（用户手机真实分辨率，
   颗粒必须 1:1，放大就糊成一片灰）
+- ⚠️ **幅度规则**（2026-10-12 用户反馈「白点/浅暗斑把屏幕搞脏」后固化）：幅度按**底色的相对对比度**给，
+  噪声必须**对称有界**（禁止正向长尾），高频用相关噪声而不是白噪，细结构交给**均匀帘纹**而不是随机纤维。
+  旧配方在 237 底色的浅纸上撒出 7.7k–11.5k/百万孤立白点（>+3 LSB），现在是 7–52/百万；夜版相对对比度
+  从峰值 ±100% 降到 ±3%。帘纹 `amp` 是「纸感」旋钮：1.6–2.2 = 看得见纸的骨，0.5–1.0 = 只剩云纹
 - ❌ 别再照 prototype 的 CSS 径向色斑做：那是给浏览器大屏的，到了手机上就是两坨黄渍（用户原话「很丑」）
 - 排版：行距 12 / 段距 2 / 字距 0（用户要求「紧回去」）；字色 `#2B241C`；夜间字色 `#EFE6D9`；
   夜间背景暖褐 `#16120E` / 深蓝 `#0B1420`
@@ -370,3 +375,30 @@ PDF 章节表**行数 ≠ 页数**就按页重建（旧版留过「一段十页�
 null object reference`，栈顶 `WebViewFactory.isWebViewSupported`）：静态初始化时 `Application` 实例还不存在。
 → 这类"需要应用上下文/WebView 框架"的初始化一律放 `App.onCreate()`（`if (BuildConfig.DEBUG)` 里）。
 排查手法：`adb logcat -b crash -d | tail -50`（普通 buffer 里可能只剩 OPPO 的 `reason=4 (APP CRASH)`）。
+
+## 开屏动效（`ui/main/LaunchSplash.kt`）
+
+- 时间轴 **2200ms**（收尾淡出 420ms）：错落多边形聚拢 → 水墨吞没 → 阴阳旋出 → 品牌字落笔 → 墨点飘散；点按/返回立即跳过
+  - 除墨点外全部用 `smoothPhase`（smoothstep，慢起慢停）：`easeOutCubic` 起步太急，真机上看就是“顿一下”
+  - 时间轴起步前先 `withFrameNanos` 等 2 帧 + `delay(120)`：避开冷启动最重的头几帧（否则多边形阶段会明显卡一下）
+- 品牌字：文本取自 `non_translat.xml` 的 `splash_brand`（`translatable=false`，= `PoR`，不跟语言/变体）；
+  字体用**书封那套笔体**（`CoilBookCover.coverTitleTypeface`，已从 private 改 internal）；78sp + 字距 6sp +
+  **横向拉 1.18**（用户：“横着拉长，不要竖着挤”）+ 一层远低于字色的浄开阴影（墨韵）；落定后不做位移
+- 只在**真冷启动**播：进程级 `LaunchSplashGate.consumed` + `intent.action == ACTION_MAIN` + `startedFromSavedState == false`
+  （`startedFromSavedState` 是 MainActivity 在 `onCreate` 存下的字段，`savedInstanceState` 是局部参数取不到）
+  → 通知深链、热启动、旋转重建都不播
+- **一个 Canvas 画完**：几何在单位空间 `remember` 一次，每帧只改变换/alpha；进度在 draw 与 `graphicsLayer`
+  阶段读状态，逐帧不触发重组（开屏期间 App 初始化正跑着）
+- 挂在应用根 `Box` 最后一位（`PrivateAppStartGate` 内部）：隐私锁未过时不组合应用界面，所以**解锁后才播**
+- 系统关掉动画（`ValueAnimator.areAnimatorsEnabled() == false`，开发者选项/省电）时直接放行
+- 配色跟主题：墨 = `onSurface`、纸 = `background`（Miuix 引擎用 `MiuixTheme.surface`，与 `SyncWindowBackground` 同源，避免淡出时色缝）
+- 离线看效果 / 调参：`D:\My_code_study\poreading\splash\splash-preview.py`（同一套时间轴搬到 Python 渲帧，
+  改 `T_*` 与 `SPLASH_RAIL_RATIO` 时两边要同步）
+- **帧率（2026-10-12 真机实测结论）**：`gfxinfo` 冷启动 卡顿帧 ~8.5%、`Slow UI thread` 25-29，而
+  `GPU HISTOGRAM` 只 3ms；去掉主段整屏 offscreen 层/减元素/改 smoothstep 后数字**几乎不变** → 拖慢的是
+  **冷启动初始化**（书架首帧、Coil、DB）跟动画抢 UI 线程，不是绘制量。`SurfaceFlinger --latency` 报 app 的刷新周期
+  11.1ms（**90Hz**；ColorOS 分档 `normal=60 / high=90`）。所以只能从“运动设计”下手：阴阳旋转已从
+  245°/0.5s（≈490°/s，细部下会频闪）降到 **140°**
+- 迭代技巧：noR8 打包带 `-x lintVitalAnalyzeAppNoR8` 可从 5m13s 降到 **1m17s**；抓帧必须带 `am force-stop`
+  （否则 `monkey` 只是把已在前台的 Activity 拉回来，根本不会冷启动、也就没有开屏）
+- ✅ 真机已验收：系统闪屏（图标）→ 应用内动效的交接无明显色差跳变，时间轴/品牌字均为最终版
