@@ -27,6 +27,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -1409,62 +1410,90 @@ private fun BookInfoActions(
         else -> shelfLabel
     }
 
-    Row(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .background(LegadoTheme.colorScheme.surface)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(vertical = 8.dp),
     ) {
-        BookInfoActionCard(
-            modifier = Modifier.weight(1f),
-            icon = when {
-                conflictHighlight -> Icons.Default.Shuffle
-                inBookshelf -> Icons.Outlined.Book
-                else -> Icons.Default.BookmarkAdd
-            },
-            label = shelfLabel,
-            contentDescription = shelfDescription,
-            containerColor = if (conflictHighlight) {
-                LegadoTheme.colorScheme.secondaryContainer
-            } else {
-                LegadoTheme.colorScheme.surfaceContainerLow
-            },
-            contentColor = if (conflictHighlight) {
-                LegadoTheme.colorScheme.onSecondaryContainer
-            } else {
-                LegadoTheme.colorScheme.onSurface
-            },
-            onLongClick = onGroupClick,
-            onClick = {
-                if (!inBookshelf) {
-                    awaitingShelfAddition = true
-                } else {
-                    awaitingShelfAddition = false
-                    showShelfRemoveHint = false
-                    showLongPressGroupHint = false
-                }
-                onShelfClick()
-            },
-        )
-        BookInfoActionCard(
-            modifier = Modifier.weight(1f),
-            icon = Icons.AutoMirrored.Outlined.FormatListBulleted,
-            label = stringResource(R.string.view_toc),
-            onClick = onTocClick
-        )
-        BookInfoActionCard(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.Code,
-            label = stringResource(R.string.change_origin),
-            onClick = onSourceClick
-        )
-        BookInfoActionCard(
-            modifier = Modifier.weight(1f),
-            icon = Icons.Default.Timeline,
-            label = stringResource(R.string.read_record),
-            onClick = onReadRecordClick
-        )
+        // 5 张卡片横排：宽度按 4 张算，右侧露出半张卡，提示还能往左滑。
+        val cardWidth = (maxWidth - 32.dp - 24.dp).div(4.5f).coerceIn(64.dp, 96.dp)
+        val actionsState = rememberLazyListState()
+        LazyRow(
+            state = actionsState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .fadingEdge(actionsState),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item(key = "shelf") {
+                BookInfoActionCard(
+                    modifier = Modifier.width(cardWidth),
+                    icon = when {
+                        conflictHighlight -> Icons.Default.Shuffle
+                        inBookshelf -> Icons.Outlined.Book
+                        else -> Icons.Default.BookmarkAdd
+                    },
+                    label = shelfLabel,
+                    contentDescription = shelfDescription,
+                    containerColor = if (conflictHighlight) {
+                        LegadoTheme.colorScheme.secondaryContainer
+                    } else {
+                        LegadoTheme.colorScheme.surfaceContainerLow
+                    },
+                    contentColor = if (conflictHighlight) {
+                        LegadoTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        LegadoTheme.colorScheme.onSurface
+                    },
+                    onLongClick = onGroupClick,
+                    onClick = {
+                        if (!inBookshelf) {
+                            awaitingShelfAddition = true
+                        } else {
+                            awaitingShelfAddition = false
+                            showShelfRemoveHint = false
+                            showLongPressGroupHint = false
+                        }
+                        onShelfClick()
+                    },
+                )
+            }
+            item(key = "toc") {
+                BookInfoActionCard(
+                    modifier = Modifier.width(cardWidth),
+                    icon = Icons.AutoMirrored.Outlined.FormatListBulleted,
+                    label = stringResource(R.string.view_toc),
+                    onClick = onTocClick,
+                )
+            }
+            item(key = "source") {
+                BookInfoActionCard(
+                    modifier = Modifier.width(cardWidth),
+                    icon = Icons.Default.Code,
+                    label = stringResource(R.string.change_origin),
+                    onClick = onSourceClick,
+                )
+            }
+            // 分组只在这一处有显式入口（长按书架卡片仍保留），未入架时选中实际分组会顺带入架。
+            item(key = "group") {
+                BookInfoActionCard(
+                    modifier = Modifier.width(cardWidth),
+                    icon = Icons.Default.Group,
+                    label = stringResource(R.string.menu_action_group),
+                    onClick = onGroupClick,
+                )
+            }
+            item(key = "readRecord") {
+                BookInfoActionCard(
+                    modifier = Modifier.width(cardWidth),
+                    icon = Icons.Default.Timeline,
+                    label = stringResource(R.string.read_record),
+                    onClick = onReadRecordClick,
+                )
+            }
+        }
     }
 }
 
