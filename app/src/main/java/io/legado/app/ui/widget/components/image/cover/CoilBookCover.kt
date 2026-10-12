@@ -559,7 +559,11 @@ private val coverArtBitmap: ImageBitmap? by lazy {
  * 系统衬线。
  * 从外挂字体目录读（B3 约定），读不到就往后回退，不能因为缺字体把封面画崩。
  */
-private val coverTitleTypeface: Typeface by lazy {
+/**
+ * 默认书封标题的笔体（行书 → 马善政楷书 → 霞鹜文楷 → serif）。
+ * 开屏品牌字也用它，所以是 internal：书封与开屏必须用同一套字体查找链，否则两边会不一致。
+ */
+internal val coverTitleTypeface: Typeface by lazy {
     val dir = File(FileUtils.getSdCardPath(), "legado/fonts")
     listOf("ZhiMangXing-Regular.ttf", "MaShanZheng-Regular.ttf", "LXGWWenKaiScreen.ttf")
         .firstNotNullOfOrNull { name ->

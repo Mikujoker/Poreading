@@ -334,6 +334,7 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
     }
     private var shouldApplyDefaultToRead = true
     private var restoredReadBookRoute: MainRouteReadBook? = null
+    private var startedFromSavedState = false
     internal var activeReadBookInputHandler: ReadBookInputHandler? = null
     internal var activeReadBookRoute: MainRouteReadBook? = null
     internal var activeMangaKeyHandler: ((Int) -> Boolean)? = null
@@ -341,6 +342,7 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         shouldApplyDefaultToRead = savedInstanceState == null
+        startedFromSavedState = savedInstanceState != null
         restoredReadBookRoute = savedInstanceState?.restoreReadBookRoute()
         super.onCreate(savedInstanceState)
 
@@ -803,6 +805,11 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
                             )
                         }
                     }
+                    // 开屏动效：装在根 Box 最后一位，盖住 Nav3 叠层与朗读/听书浮层。
+                    LaunchSplashHost(
+                        savedStatePresent = startedFromSavedState,
+                        launchAction = intent?.action,
+                    )
                 }
                 BackHandler(
                     enabled = shouldHandleActivityBack(
