@@ -245,3 +245,9 @@
      `remote: fatal: did not receive expected object … / index-pack failed`（`--no-thin` 也没用）
      → 先 `git fetch --unshallow origin`（上游 79.5 MB）再推
   3. 用户仓库 main 原是一个孤立"快照"提交，与本地历史无共同祖先 → 用 `--force-with-lease` 覆盖
+  4. WSL 直连 GitHub 会 `GnuTLS recv error (-110): The TLS connection was non-properly terminated`；
+     本机代理在 **Windows 侧 7890**（WSL 侧无监听），要推就给 WSL git 加 `-c http.proxy=http://127.0.0.1:7890`
+  5. **最省事的一条**（2026-10-12 实测）：直接用 Windows git 操作 WSL 里的仓库，
+     它的 `http.proxy=127.0.0.1:7890` 与 GCM 凭据都是现成的：
+     `/mnt/d/Git/cmd/git.exe -c safe.directory='*' -C '//wsl.localhost/Ubuntu-22.04/home/mikujoker/work/legado-md3' push mine main`
+     （WSL 侧 `credential.helper` 是空的，非交互推送只会报 `could not read Username`）
